@@ -42,10 +42,14 @@ export type PillProps = StaticPillProps | ClickablePillProps
 
 /**
  * Compact pill / badge. Static `<span>` by default; renders as a `<button>`
- * when an `onClick` is supplied so keyboard / a11y are correct.
+ * when an `onClick` handler is supplied so keyboard / a11y are correct.
+ *
+ * `onClick` is destructured explicitly so the static-vs-clickable branch is
+ * driven by an actual function value, not by `'onClick' in props` (which
+ * would be true even when the caller passed `onClick={undefined}`).
  */
 export function Pill(props: PillProps): JSX.Element {
-  const { size, tone, swatch, mono, children, className, ...rest } = props as BasePillProps & {
+  const { size, tone, swatch, mono, children, className, onClick, ...rest } = props as BasePillProps & {
     onClick?: ButtonHTMLAttributes<HTMLButtonElement>['onClick']
   }
   const cls = cn(pillVariants({ size, tone }), mono && 'mono', className)
@@ -57,10 +61,10 @@ export function Pill(props: PillProps): JSX.Element {
     </>
   )
 
-  if ('onClick' in rest && rest.onClick) {
+  if (onClick) {
     const buttonRest = rest as ButtonHTMLAttributes<HTMLButtonElement>
     return (
-      <button type="button" className={cls} {...buttonRest}>
+      <button type="button" className={cls} onClick={onClick} {...buttonRest}>
         {inner}
       </button>
     )

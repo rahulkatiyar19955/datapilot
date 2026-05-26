@@ -120,10 +120,17 @@ body {
   gap: 14px;
   user-select: none;
 }
-.traffic { display: flex; gap: 8px; align-items: center; }
+.traffic {
+  --traffic-light-size: 16px;
+  --traffic-light-gap: 9px;
+  display: flex;
+  gap: var(--traffic-light-gap);
+  align-items: center;
+}
 .traffic .dot {
-  width: 12px; height: 12px; border-radius: 50%;
+  width: var(--traffic-light-size); height: var(--traffic-light-size); border-radius: 50%;
   border: 0.5px solid oklch(0 0 0 / 0.3);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.35);
 }
 .traffic .red    { background: #ff5f57; }
 .traffic .yellow { background: #febc2e; }

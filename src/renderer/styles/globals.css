@@ -150,17 +150,25 @@ body,
 }
 
 .traffic {
+  --traffic-light-size: 16px;
+  --traffic-light-gap: 9px;
   display: flex;
-  gap: 8px;
+  gap: var(--traffic-light-gap);
   align-items: center;
   -webkit-app-region: no-drag;
 }
 
 .traffic .dot {
-  width: 14px;
-  height: 14px;
+  width: var(--traffic-light-size);
+  height: var(--traffic-light-size);
   border-radius: 50%;
   border: 0.5px solid oklch(0 0 0 / 0.15);
+  box-shadow: inset 0 0.5px 0 oklch(1 0 0 / 0.35);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
 }
 
 .traffic .red    { background: #ff5f57; }

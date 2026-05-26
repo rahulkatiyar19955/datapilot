@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { DockerStatus } from '@shared/ipc'
 import { Icon } from '@renderer/components/Icon'
 import { Button } from '@renderer/components/ui'
@@ -10,13 +10,27 @@ interface SetupProps {
 
 export function Setup({ status, onRetry }: SetupProps): JSX.Element {
   const [copied, setCopied] = useState<string | null>(null)
+  // Track the "show checkmark" timeout so rapid re-clicks don't pile up
+  // overlapping timers (which would prematurely reset the indicator) and so
+  // we cancel it on unmount instead of calling setState on a dead component.
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const copyToClipboard = (text: string) => {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(text)
-      setTimeout(() => setCopied(null), 2000)
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopied(null)
+        copyTimeoutRef.current = null
+      }, 2000)
     })
   }
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
 
   if (status.state === 'pending') {
     return (

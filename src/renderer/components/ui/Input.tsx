@@ -21,17 +21,27 @@ interface InputProps
   leading?: ReactNode
   /** Trailing slot — most commonly a ⌘K hint `<span>`. */
   trailing?: ReactNode
-  /** Override classes on the outer wrapper, not the native input. */
-  wrapperClassName?: string
+  /**
+   * Override classes on the inner native `<input>`. The outer-wrapper
+   * className is set via the standard `className` prop, matching the
+   * convention every other primitive uses (className positions/sizes the
+   * component as a whole; consumers rarely need to restyle the bare input).
+   */
+  inputClassName?: string
 }
 
 /**
  * Generic input wrapped in a styled container with optional leading icon /
  * trailing hint. Forwards `ref` to the underlying `<input>` so callers can
  * focus it (e.g. ⌘K opens the search overlay and focuses its input).
+ *
+ * Conventions:
+ *   - `className` + `style` apply to the outer wrapper so layout utilities
+ *     (`w-full`, `mt-4`, etc.) behave as expected.
+ *   - `inputClassName` opts into restyling the inner native `<input>`.
  */
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { leading, trailing, wrapperClassName, className, size, style, ...rest },
+  { leading, trailing, className, inputClassName, size, style, ...rest },
   ref,
 ) {
   // Size 'sm' tightens the wrapper (height 26px, smaller font).
@@ -41,9 +51,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       : undefined
 
   return (
-    <div className={cn(inputContainerVariants({ size }), wrapperClassName)} style={{ ...sizeStyle, ...style }}>
+    <div
+      className={cn(inputContainerVariants({ size }), className)}
+      style={{ ...sizeStyle, ...style }}
+    >
       {leading}
-      <input ref={ref} className={cn(className)} {...rest} />
+      <input ref={ref} className={cn(inputClassName)} {...rest} />
       {trailing}
     </div>
   )
