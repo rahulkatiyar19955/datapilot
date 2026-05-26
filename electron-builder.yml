@@ -1,0 +1,45 @@
+appId: dev.datapilot.app
+productName: DataPilot
+copyright: Copyright © 2026 DataPilot
+
+directories:
+  buildResources: build
+  output: release
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: sample_bags
+    to: sample_bags
+    filter: ["**/*"]
+
+asar: true
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+linux:
+  category: Development
+  target:
+    - target: AppImage
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

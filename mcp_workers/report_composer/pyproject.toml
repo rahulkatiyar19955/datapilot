@@ -1,0 +1,11 @@
+[project]
+name = "datapilot-mcp-report_composer"
+version = "0.1.0"
+description = "DataPilot MCP worker stub: report_composer (Phase 0)"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[tool.uv]
+package = false

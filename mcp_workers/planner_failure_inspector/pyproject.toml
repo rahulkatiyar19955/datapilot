@@ -1,0 +1,11 @@
+[project]
+name = "datapilot-mcp-planner_failure_inspector"
+version = "0.1.0"
+description = "DataPilot MCP worker stub: planner_failure_inspector (Phase 0)"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[tool.uv]
+package = false

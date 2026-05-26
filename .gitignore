@@ -1,2 +1,53 @@
+# Node
 node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+
+# Build outputs
+out/
+dist/
+release/
+*.tsbuildinfo
+
+# Electron-vite cache
+.electron-vite/
+
+# Vite
+.vite/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.uv-cache/
+
+# Local databases / data
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Logs
+*.log
+
+# Sample bags larger than 250MB are not committed (small demo bags only)
+sample_bags/large_*.mcap
+sample_bags/large_*.db3
+
+# Secrets
+.env
+.env.local
+.env.*.local
