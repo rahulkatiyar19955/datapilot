@@ -1,22 +1,52 @@
 @import "tailwindcss";
 
-/*
- * Phase 0: minimal tokens so the loading screen looks like the mock.
- * Phase 2 will port the full @theme block from mock_design/styles.css.
- */
 @theme {
   --color-bg-0: oklch(0.16 0.012 240);
   --color-bg-1: oklch(0.195 0.012 240);
   --color-bg-2: oklch(0.225 0.013 240);
   --color-bg-3: oklch(0.265 0.014 240);
+  --color-bg-4: oklch(0.31 0.014 240);
   --color-border-1: oklch(0.30 0.012 240);
+  --color-border-2: oklch(0.36 0.013 240);
+  --color-border-3: oklch(0.46 0.014 240);
   --color-text-0: oklch(0.96 0.005 240);
   --color-text-1: oklch(0.86 0.006 240);
   --color-text-2: oklch(0.66 0.010 240);
   --color-text-3: oklch(0.50 0.012 240);
+  
   --color-accent: oklch(0.74 0.17 235);
+  --color-accent-dim: oklch(0.42 0.10 235);
+  --color-accent-bg: oklch(0.30 0.07 235 / 0.35);
+  
+  --color-ok: oklch(0.78 0.17 150);
+  --color-warn: oklch(0.80 0.15 80);
+  --color-danger: oklch(0.70 0.20 25);
+  --color-magenta: oklch(0.70 0.18 330);
+  
   --font-ui: 'Inter', -apple-system, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+}
+
+[data-theme="light"] {
+  --color-bg-0: oklch(0.985 0.003 240);
+  --color-bg-1: oklch(0.965 0.004 240);
+  --color-bg-2: oklch(0.99 0.003 240);
+  --color-bg-3: oklch(0.945 0.005 240);
+  --color-bg-4: oklch(0.91 0.006 240);
+  --color-border-1: oklch(0.89 0.006 240);
+  --color-border-2: oklch(0.82 0.008 240);
+  --color-border-3: oklch(0.72 0.010 240);
+  --color-text-0: oklch(0.18 0.012 240);
+  --color-text-1: oklch(0.30 0.012 240);
+  --color-text-2: oklch(0.48 0.012 240);
+  --color-text-3: oklch(0.62 0.010 240);
+  --color-accent: oklch(0.55 0.17 235);
+  --color-accent-dim: oklch(0.68 0.10 235);
+  --color-accent-bg: oklch(0.88 0.06 235 / 0.5);
+  --color-ok: oklch(0.55 0.16 150);
+  --color-warn: oklch(0.62 0.14 70);
+  --color-danger: oklch(0.55 0.19 25);
+  --color-magenta: oklch(0.55 0.18 330);
 }
 
 * {
@@ -37,71 +67,391 @@ body,
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.005em;
   overflow: hidden;
+  transition: background 0.18s;
 }
 
 .mono {
   font-family: var(--font-mono);
 }
 
-/* ── Phase 0 loading screen ──────────────────────────────────────── */
+/* ── Custom Window Chrome & Shell ────────────────────────────────── */
 
-.loading-shell {
+.window {
   width: 100vw;
   height: 100vh;
-  display: grid;
-  place-items: center;
-  /* Custom drag region so the user can move the frameless window. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-0);
+}
+
+.titlebar {
+  height: 36px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, var(--color-bg-1), var(--color-bg-0));
+  border-bottom: 1px solid var(--color-border-1);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 14px;
+  user-select: none;
+  /* Custom drag region for the frameless window */
   -webkit-app-region: drag;
 }
 
-.loading-card {
+.traffic {
   display: flex;
-  flex-direction: column;
+  gap: 8px;
   align-items: center;
-  gap: 18px;
   -webkit-app-region: no-drag;
 }
 
-.loading-logo {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+.traffic .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 0.5px solid oklch(0 0 0 / 0.3);
+}
+
+.traffic .red    { background: #ff5f57; }
+.traffic .yellow { background: #febc2e; }
+.traffic .green  { background: #28c840; }
+
+.title {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-2);
+  letter-spacing: 0.02em;
+}
+
+.title b {
+  color: var(--color-text-0);
+  font-weight: 600;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+/* ── Utility Primitives ─────────────────────────────────────────── */
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+}
+
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+
+.flex1 {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-bg-3);
+  color: var(--color-text-1);
+  border: 1px solid var(--color-border-1);
+  white-space: nowrap;
+}
+
+.pill.sm {
+  height: 18px;
+  font-size: 10.5px;
+  padding: 0 6px;
+  border-radius: 9px;
+}
+
+.pill .swatch {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-2);
+}
+
+.pill.ok {
+  color: oklch(0.88 0.13 150);
+  background: oklch(0.30 0.08 150 / 0.4);
+  border-color: oklch(0.45 0.10 150 / 0.5);
+}
+.pill.ok .swatch {
+  background: var(--color-ok);
+  box-shadow: 0 0 8px var(--color-ok);
+}
+
+.pill.warn {
+  color: oklch(0.90 0.12 80);
+  background: oklch(0.32 0.08 80 / 0.4);
+  border-color: oklch(0.48 0.10 80 / 0.5);
+}
+.pill.warn .swatch {
+  background: var(--color-warn);
+  box-shadow: 0 0 8px var(--color-warn);
+}
+
+.pill.danger {
+  color: oklch(0.85 0.16 25);
+  background: oklch(0.30 0.10 25 / 0.4);
+  border-color: oklch(0.50 0.14 25 / 0.5);
+}
+.pill.danger .swatch {
+  background: var(--color-danger);
+  box-shadow: 0 0 8px var(--color-danger);
+}
+
+.pill.accent {
+  color: oklch(0.88 0.13 235);
+  background: var(--color-accent-bg);
+  border-color: oklch(0.50 0.12 235 / 0.5);
+}
+.pill.accent .swatch {
+  background: var(--color-accent);
+  box-shadow: 0 0 8px var(--color-accent);
+}
+
+.pill.ghost {
+  background: transparent;
+  border-color: var(--color-border-1);
+  color: var(--color-text-2);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--color-bg-3);
+  color: var(--color-text-1);
+  border: 1px solid var(--color-border-1);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+  font-family: inherit;
+  user-select: none;
+}
+
+.btn:hover {
+  background: var(--color-bg-4);
+  border-color: var(--color-border-2);
+  color: var(--color-text-0);
+}
+
+.btn.primary {
+  background: oklch(0.48 0.14 235);
+  border-color: oklch(0.60 0.16 235);
+  color: white;
+}
+
+.btn.primary:hover {
+  background: oklch(0.55 0.16 235);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-2);
+}
+.btn.ghost:hover {
+  background: var(--color-bg-2);
+  color: var(--color-text-1);
+}
+
+.btn.icon {
+  width: 28px;
+  padding: 0;
+}
+
+.btn.sm {
+  height: 24px;
+  font-size: 11.5px;
+  padding: 0 8px;
+}
+
+.btn.sm.icon {
+  width: 24px;
+  padding: 0;
+}
+
+/* ── Setup & Troubleshooting screen ──────────────────────────────── */
+
+.setup-container {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow-y: auto;
+  background: var(--color-bg-0);
+}
+
+.setup-card {
+  width: 100%;
+  max-width: 580px;
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-border-1);
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow:
+    0 1px 0 0 oklch(1 0 0 / 0.04) inset,
+    0 16px 48px -12px oklch(0 0 0 / 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.setup-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   background: linear-gradient(135deg, var(--color-accent), oklch(0.55 0.18 280));
   display: grid;
   place-items: center;
   color: var(--color-bg-0);
   font-weight: 800;
-  font-size: 28px;
+  font-size: 24px;
   letter-spacing: -0.04em;
-  box-shadow:
-    0 0 0 1px oklch(0 0 0 / 0.4),
-    0 8px 24px -4px oklch(0.55 0.18 250 / 0.4);
+  box-shadow: 0 4px 12px -2px oklch(0.55 0.18 250 / 0.4);
 }
 
-.loading-text {
-  font-size: 16px;
-  color: var(--color-text-2);
+.setup-header {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 16px;
 }
 
-.loading-brand {
-  color: var(--color-text-0);
+.setup-title-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.setup-title {
+  font-size: 18px;
   font-weight: 600;
+  color: var(--color-text-0);
 }
 
-.loading-dim {
+.setup-subtitle {
+  font-size: 12px;
   color: var(--color-text-3);
 }
 
-.loading-caret {
+.setup-status {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--color-bg-2);
+  border-left: 3px solid var(--color-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setup-status.error {
+  border-left-color: var(--color-danger);
+}
+
+.setup-status-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-3);
+}
+
+.setup-status-message {
+  font-size: 13px;
+  color: var(--color-text-1);
+}
+
+.setup-remediation {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setup-remediation-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.setup-code-block {
+  background: var(--color-bg-0);
+  border: 1px solid var(--color-border-1);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-1);
+  overflow-x: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.setup-code-cmd {
+  white-space: nowrap;
+}
+
+.setup-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* ── General Loading / Shimmer ────────────────────────────────────── */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pulse {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.caret {
   display: inline-block;
-  width: 8px;
-  height: 16px;
+  width: 7px;
+  height: 13px;
   background: var(--color-accent);
-  margin-left: 4px;
   vertical-align: -2px;
+  margin-left: 2px;
   animation: blink 1s steps(1) infinite;
 }
 
@@ -110,13 +460,11 @@ body,
   50.1%, 100% { opacity: 0; }
 }
 
-.loading-meta {
-  display: flex;
-  gap: 10px;
-  font-size: 11px;
-  color: var(--color-text-3);
+.fade-in {
+  animation: fadeIn 0.25s ease-out;
 }
 
-.loading-sep {
-  opacity: 0.5;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
