@@ -64,10 +64,3 @@ Once started:
 * **Backend API Docs**: View Swagger UI at `http://localhost:8000/docs`.
 
 ---
-
-## 👥 Hackathon Team (Role Assignments)
-
-* **Dev 1 (Backend & Parser)**: Core FastAPI setup, ROS 2 binary parser, raw file systems.
-* **Dev 2 (Frontend & UI)**: Next.js app construction, Tailwind stylings, timeline charting, state managers.
-* **Dev 3 (ML & RAG Specialist)**: Milvus index design, text chunking, prompt engineering, LLM API client.
-* **Dev 4 (Integrations / DevOps)**: Docker setups, demo datasets preparation, pitch deck creation, QA verification.
