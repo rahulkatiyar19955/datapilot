@@ -1,0 +1,130 @@
+# DataPilot local stack.
+#
+# This file is consumed by the Electron main process (`dockerOrchestrator.ts`,
+# Phase 1) to discover image names, ports, and mount paths. It is NOT intended
+# to be invoked manually with `docker compose up`. The desktop app boots and
+# tears down this stack on launch / quit.
+#
+# Run `docker compose config` to validate this file.
+
+name: datapilot
+
+networks:
+  datapilot-net:
+    driver: bridge
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  app-data:
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: datapilot-neo4j
+    networks: [datapilot-net]
+    ports:
+      - "7474:7474" # HTTP (Browser + health)
+      - "7687:7687" # Bolt (driver)
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-datapilot-local}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: datapilot/backend:local
+    container_name: datapilot-backend
+    networks: [datapilot-net]
+    ports:
+      - "8000:8000"
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-datapilot-local}
+      DATAPILOT_HOST_MOUNT: /host
+      DATAPILOT_DATA_DIR: /data
+    volumes:
+      - app-data:/data
+      # `/host` mount is injected at runtime by the Electron orchestrator —
+      # it binds the user's home directory so the parser can read rosbags
+      # by absolute host path without copying them.
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  rosbag-reader:
+    build:
+      context: ./mcp_workers/rosbag_reader
+    image: datapilot/mcp-rosbag-reader:local
+    container_name: datapilot-rosbag-reader
+    networks: [datapilot-net]
+    environment:
+      DATAPILOT_HOST_MOUNT: /host
+    # `/host` mount injected by the orchestrator at runtime (read-only).
+    depends_on:
+      backend:
+        condition: service_started
+
+  trajectory-analyzer:
+    build:
+      context: ./mcp_workers/trajectory_analyzer
+    image: datapilot/mcp-trajectory-analyzer:local
+    container_name: datapilot-trajectory-analyzer
+    networks: [datapilot-net]
+    environment:
+      DATAPILOT_HOST_MOUNT: /host
+    depends_on:
+      backend:
+        condition: service_started
+
+  planner-failure-inspector:
+    build:
+      context: ./mcp_workers/planner_failure_inspector
+    image: datapilot/mcp-planner-failure-inspector:local
+    container_name: datapilot-planner-failure-inspector
+    networks: [datapilot-net]
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-datapilot-local}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+
+  anomaly-detector:
+    build:
+      context: ./mcp_workers/anomaly_detector
+    image: datapilot/mcp-anomaly-detector:local
+    container_name: datapilot-anomaly-detector
+    networks: [datapilot-net]
+    environment:
+      DATAPILOT_HOST_MOUNT: /host
+    depends_on:
+      backend:
+        condition: service_started
+
+  report-composer:
+    build:
+      context: ./mcp_workers/report_composer
+    image: datapilot/mcp-report-composer:local
+    container_name: datapilot-report-composer
+    networks: [datapilot-net]
+    depends_on:
+      backend:
+        condition: service_started

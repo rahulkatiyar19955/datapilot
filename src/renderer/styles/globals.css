@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+/*
+ * Phase 0: minimal tokens so the loading screen looks like the mock.
+ * Phase 2 will port the full @theme block from mock_design/styles.css.
+ */
+@theme {
+  --color-bg-0: oklch(0.16 0.012 240);
+  --color-bg-1: oklch(0.195 0.012 240);
+  --color-bg-2: oklch(0.225 0.013 240);
+  --color-bg-3: oklch(0.265 0.014 240);
+  --color-border-1: oklch(0.30 0.012 240);
+  --color-text-0: oklch(0.96 0.005 240);
+  --color-text-1: oklch(0.86 0.006 240);
+  --color-text-2: oklch(0.66 0.010 240);
+  --color-text-3: oklch(0.50 0.012 240);
+  --color-accent: oklch(0.74 0.17 235);
+  --font-ui: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--color-bg-0);
+  color: var(--color-text-1);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Phase 0 loading screen ──────────────────────────────────────── */
+
+.loading-shell {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  /* Custom drag region so the user can move the frameless window. */
+  -webkit-app-region: drag;
+}
+
+.loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  -webkit-app-region: no-drag;
+}
+
+.loading-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--color-accent), oklch(0.55 0.18 280));
+  display: grid;
+  place-items: center;
+  color: var(--color-bg-0);
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: -0.04em;
+  box-shadow:
+    0 0 0 1px oklch(0 0 0 / 0.4),
+    0 8px 24px -4px oklch(0.55 0.18 250 / 0.4);
+}
+
+.loading-text {
+  font-size: 16px;
+  color: var(--color-text-2);
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.loading-brand {
+  color: var(--color-text-0);
+  font-weight: 600;
+}
+
+.loading-dim {
+  color: var(--color-text-3);
+}
+
+.loading-caret {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  background: var(--color-accent);
+  margin-left: 4px;
+  vertical-align: -2px;
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  50.1%, 100% { opacity: 0; }
+}
+
+.loading-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--color-text-3);
+}
+
+.loading-sep {
+  opacity: 0.5;
+}
