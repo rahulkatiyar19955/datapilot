@@ -11,9 +11,30 @@ files:
   - package.json
 
 extraResources:
+  # Sample bags shipped with the installer (Phase 12 "Load demo bag" flow).
   - from: sample_bags
     to: sample_bags
     filter: ["**/*"]
+  # docker-compose.yml is read at runtime by dockerOrchestrator.ts to discover
+  # service definitions. Placed at process.resourcesPath/docker-compose.yml.
+  - from: docker-compose.yml
+    to: docker-compose.yml
+  # Build contexts for the locally-built images. Compose `build.context` paths
+  # are resolved relative to docker-compose.yml's location, so backend/ and
+  # mcp_workers/ must sit next to it in the packaged resources directory.
+  - from: backend
+    to: backend
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/.venv/**"
+      - "!**/*.pyc"
+  - from: mcp_workers
+    to: mcp_workers
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
 
 asar: true
 

@@ -1,20 +1,10 @@
 /**
  * Typed IPC contracts shared by main, preload, and renderer.
  *
- * Phase 0 stub — channels added as their producing phase lands.
- *
  * Convention:
  *   - Channel names follow `<namespace>:<verb>` (e.g. `docker:status`).
  *   - Request and response shapes are declared here.
  *   - Preload exposes a strongly-typed `window.datapilot.*` surface.
- *
- * Future channels (planned, not yet wired):
- *   - docker:status, docker:retry         (Phase 1)
- *   - file:pickBag                         (Phase 1)
- *   - theme:get, theme:set                 (Phase 1 / 2)
- *   - settings:get, settings:set           (Phase 4)
- *   - keychain:get, keychain:set           (Phase 4 — safeStorage)
- *   - shell:openPath                       (Phase 11)
  */
 
 export type DockerStatus =
@@ -30,10 +20,47 @@ export type DockerErrorCode =
   | 'unknown'
 
 export interface DatapilotApi {
-  /** Returns the current Electron app version. Available immediately, no Docker required. */
+  /** Returns the current Electron app version and platform info. Available immediately. */
   app: {
     version(): Promise<string>
     platform(): Promise<NodeJS.Platform>
+  }
+  /** Controls and monitors the local Docker services stack. */
+  docker: {
+    status(): Promise<DockerStatus>
+    retry(): Promise<void>
+    onStatusChanged(callback: (status: DockerStatus) => void): () => void
+    /**
+     * Streams logs from a service container (e.g. "backend" or "datapilot-backend").
+     * Returns an unsubscribe function that closes the stream on the main side.
+     */
+    streamLogs(
+      service: string,
+      onChunk: (chunk: string) => void,
+    ): Promise<() => Promise<void>>
+  }
+  /** Prompts user to pick a ROS bag file via native OS dialogs. */
+  file: {
+    pickBag(): Promise<string | null>
+  }
+  /** Theme preference operations. */
+  theme: {
+    get(): Promise<'dark' | 'light' | 'system'>
+    set(theme: 'dark' | 'light' | 'system'): Promise<void>
+  }
+  /** Local storage settings (e.g., config parameters). */
+  settings: {
+    get(key: string): Promise<string | null>
+    set(key: string, value: string): Promise<void>
+  }
+  /** Secure credential storage using Electron's safeStorage. */
+  keychain: {
+    get(key: string): Promise<string | null>
+    set(key: string, value: string): Promise<void>
+  }
+  /** Launches file/folder path with host defaults. */
+  shell: {
+    openPath(path: string): Promise<void>
   }
 }
 
