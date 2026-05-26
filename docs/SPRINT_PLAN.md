@@ -7,11 +7,11 @@ This plan organizes the 1-week build timeline for a 4-person team. It prioritize
 ## 👥 Team Roles & Responsibilities
 
 * **Dev 1: Lead Desktop Engineer & Orchestrator**
-  * Electron main process configuration, IPC bridge APIs, native OS file picker integration, Docker socket daemon orchestration via `dockerode`.
+  * Electron main process configuration, typed IPC contracts (`src/shared/ipc.ts`), preload contextBridge api, native file dialogs, and Docker socket management.
 * **Dev 2: Frontend Desktop UI Engineer**
-  * Electron renderer UI design, dashboard terminal layout using Vanilla CSS, Recharts logs visualization, local LLM selector settings, and Docker troubleshooting guide screens.
+  * Electron renderer UI screen components (`src/renderer/screens/`), bespoke React + inline SVG chart views, zustand screen states, local font importing, and styling using Vanilla CSS.
 * **Dev 3: ML, Knowledge Graph & API Router Specialist**
-  * Neo4j DB container seeding (nodes, vectors), multi-provider LLM API router (OpenAI, Gemini, local Llama), and Python-based MCP worker server configurations.
+  * Neo4j DB container seeding (nodes, vectors), causal rules engine config, SQLite schema tables (`sessions`, `agent_models`, `session_costs`, `langgraph_checkpoints`), and multi-provider LLM API router (OpenAI, Gemini, Llama).
 * **Dev 4: DevOps, Packaging & Integration (PM/Fullstack)**
   * Docker Compose container builds, local directory mount permissions, Electron desktop packaging configuration (`electron-builder`), and QA test bag runs.
 
@@ -21,33 +21,33 @@ This plan organizes the 1-week build timeline for a 4-person team. It prioritize
 
 ### Day 1: Electron App Setup & Docker Connection
 * **Daily Goal**: Establish the desktop app skeleton and verify connection to the local Docker socket.
-* **🔴 Non-Negotiable Outcome**: Electron app shell launches, Main process connects to `/var/run/docker.sock`, and spins up the local Neo4j database container.
+* **🔴 Non-Negotiable Outcome**: Electron app shell launches, Main process connects to `/var/run/docker.sock` and spins up the local Neo4j database container.
 * **Task Allocation**:
-  * **Dev 1**: Scaffold Electron project (main process setup, preload script, renderer project directories), implement `dockerode` connection logic.
-  * **Dev 2**: Configure Next.js/React static build settings inside Electron Renderer, set up base Vanilla CSS variables, and design main app dashboard layouts.
+  * **Dev 1**: Scaffold Electron project using `pnpm create @quick-start/electron` (electron-vite React template). Setup `src/main/`, `src/preload/`, `src/renderer/` directories under a single Node package.
+  * **Dev 2**: Design the frameless WindowChrome, titlebars, and side rails. Declare Tailwind v4 `@theme` tokens in `src/renderer/styles/globals.css`.
   * **Dev 3**: Configure the local Neo4j DB Docker Compose configuration and verify cloud API connections (OpenAI/Gemini).
   * **Dev 4**: Set up dev environment packaging configs and create a base `docker-compose.yml` for FastAPI, Neo4j, and the 5 worker microservices.
 
 ---
 
-### Day 2: Docker Verification, Setup UI & Native File Selector
+### Day 2: Docker Verification, Setup UI & Preload Script
 * **Daily Goal**: Build the Docker socket check, Setup screens, and file picker IPC.
 * **🔴 Non-Negotiable Outcome**: If Docker is off, Electron renders the Setup Guide screen; if Docker is running, the app starts container services and permits picking local MCAP paths via OS file dialogs.
 * **Task Allocation**:
-  * **Dev 1**: Code the Main process startup sequence: query Docker status, boot containers, and map native OS file selection dialog paths over IPC.
-  * **Dev 2**: Implement the **Setup & Troubleshooting Screen** (instructions for starting Docker Desktop, enabling default socket usage, and permissions guide).
+  * **Dev 1**: Code Main process startup sequence using `dockerode`. Implement contextBridge preload scripts using typed IPC channels defined in `src/shared/ipc.ts`.
+  * **Dev 2**: Implement the Setup & Troubleshooting Screen (`screens/Setup.tsx`) and install `@fontsource/inter` and `@fontsource/jetbrains-mono` locally.
   * **Dev 3**: Code the base structures for local LLM requests (Ollama/Llama.cpp local ports) and define MCP tool schemas.
   * **Dev 4**: Pull required Docker base images, configure local host directory mounts, and organize test bags in `./sample_bags`.
 
 ---
 
-### Day 3: Ingestion Pipeline & Host Storage
+### Day 3: Ingestion Pipeline & Bespoke Timeline Base
 * **Daily Goal**: Ingest local files into the containerized databases and draw the logs timeline.
-* **🔴 Non-Negotiable Outcome**: Clicking a file on the host indexes the metadata in SQLite, parses logs to the Neo4j database container, and draws message severity counts on the UI timeline.
+* **🔴 Non-Negotiable Outcome**: Clicking a file on the host indexes the metadata in SQLite, parses logs to the Neo4j database container, and draws message severity counts on a bespoke inline SVG timeline.
 * **Task Allocation**:
   * **Dev 1**: Configure local directory mounting into the FastAPI parser container. Save session files to SQLite.
-  * **Dev 2**: Code `LogTimeline` component with Recharts, fetching data from local port `8000`.
-  * **Dev 3**: Write Neo4j ingestion drivers (parsing logs directly from the mounted filepath, generating embeddings, indexing).
+  * **Dev 2**: Code the bespoke `LogTimeline` component as an inline React + SVG component (no external charting libraries) and connect it to local port `8000`.
+  * **Dev 3**: Write Neo4j ingestion drivers (parsing logs directly from the mounted filepath, generating embeddings, running causal rules engine, indexing).
   * **Dev 4**: Build FastAPI local metadata endpoints (`/api/sessions/{id}` and `/api/sessions/{id}/timeline`).
 
 ---
@@ -56,8 +56,8 @@ This plan organizes the 1-week build timeline for a 4-person team. It prioritize
 * **Daily Goal**: Integrate the LangGraph state machine and LLM router.
 * **🔴 Non-Negotiable Outcome**: Typing in the chat terminal routes the prompt to either cloud APIs (OpenAI, Gemini) or local Llama, running the plan-and-execute loop locally.
 * **Task Allocation**:
-  * **Dev 1**: Integrate the LangGraph orchestrator loop inside the FastAPI container. Use SQLite on the host user-data folder for checkpoints.
-  * **Dev 2**: Design `ChatTerminal` with a settings toggle panel (API providers: OpenAI, Gemini, Llama; input fields for API keys; local endpoint URL configurations).
+  * **Dev 1**: Integrate the LangGraph orchestrator loop inside the FastAPI container. Use SQLite on the host user-data folder for checkpoints (`langgraph_checkpoints` table).
+  * **Dev 2**: Design `screens/Copilot.tsx` with a model selector panel (OpenAI, Gemini, Llama) linked to SQLite `agent_models` table.
   * **Dev 3**: Implement the LLM Router inside FastAPI to handle OpenAI, Google Gemini, and Llama connection protocols.
   * **Dev 4**: Integrate the local MCP client connection and run E2E chat runs using the host file selection.
 
@@ -67,8 +67,8 @@ This plan organizes the 1-week build timeline for a 4-person team. It prioritize
 * **Daily Goal**: Build independent containerized worker microservices.
 * **🔴 Non-Negotiable Outcome**: Five separate MCP worker containers running locally, responding to JSON-RPC tools request payloads.
 * **Task Allocation**:
-  * **Dev 1**: Expose agent execution audit trail JSON payload (planner steps, tool execution statuses) to Electron Renderer.
-  * **Dev 2**: Bind timeline click events to pre-populate chat queries with relative timestamps.
+  * **Dev 1**: Expose agent execution audit trail JSON payload (`AuditEvent[]`) to Electron Renderer over SSE.
+  * **Dev 2**: Build the bespoke `MetricPlot` SVG charts to display velocity and CPU usage. Code a hidden keyboard shortcut (`⌘⇧D`) to view the `DesignSystem` verification screen.
   * **Dev 3**: Code the logic for the 5 independent MCP worker services (`RosbagReader`, `TrajectoryAnalyzer`, `PlannerFailureInspector`, `AnomalyDetector`, and `ReportComposer`).
   * **Dev 4**: Create individual Dockerfiles for all 5 MCP workers and append them to the main Docker Compose configuration managed by Electron.
 
@@ -87,17 +87,17 @@ This plan organizes the 1-week build timeline for a 4-person team. It prioritize
 ---
 
 ### Day 7: E2E Video, Pitch Deck & Submission
-* **Daily Goal**: Compile presentation assets and clean the codebase.
+* **Daily Goal**: Package the project and create presentation assets.
 * **🔴 Non-Negotiable Outcome**: 3-minute video showing the desktop app loading a bag, detecting errors with Llama/OpenAI, and a finalized pitch deck.
 * **Task Allocation**:
   * **Dev 1 & 3**: Clean up the codebase, add docstrings, verify no credentials or host-specific paths are hardcoded.
-  * **Dev 2**: Double-check renderer responsive sizing, alignment, and hover feedback.
-  * **Dev 4 (Lead)**: Record the 3-minute desktop app walkthrough, compile the Pitch Deck (highlighting data privacy, local Docker orchestration, and LLM flexibility), submit.
+  * **Dev 2**: Review UI visual consistency (responsive layouts, typography alignment, and clear hover interactions).
+  * **Dev 4 (Lead)**: Record the 3-minute desktop app walkthrough, compile the Pitch Deck, submit.
 
 ---
 
 ## 🛡️ Risk Buffering Strategy
 
-1. **Docker Permission Blocks**: If macOS/Windows Docker socket bindings fail, Electron will prompt the user with a setup panel that contains step-by-step shell commands, rather than silently failing or crashing.
+1. **Docker Permission Blocks**: If macOS/Windows Docker socket bindings fail, Electron will prompt the user with a setup panel that contains step-by-step shell commands.
 2. **Local GPU Availability**: If local Llama execution is too slow, the UI prominently defaults to OpenAI or Gemini cloud APIs, keeping Llama as an optional air-gapped configuration.
 3. **Strict Friday Freeze**: No new features are allowed to be added after Thursday midnight (End of Day 5). Days 6 and 7 are reserved strictly for packaging, stability, and demo recording.
