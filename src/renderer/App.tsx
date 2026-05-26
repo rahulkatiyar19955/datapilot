@@ -1,18 +1,11 @@
 import { useEffect, useState, type JSX } from 'react'
 import { Setup } from './screens/Setup'
+import { DesignSystem } from './screens/DesignSystem'
+import { Icon } from './components/Icon'
+import { useTheme } from './hooks/useTheme'
+import { WindowChrome, Titlebar, Traffic, Rail, RailButton } from './components/chrome'
+import { Button, Pill } from './components/ui'
 import type { DockerStatus } from '@shared/ipc'
-import {
-  Sun,
-  Moon,
-  MessageSquare,
-  LayoutGrid,
-  Search,
-  PlayCircle,
-  Cpu,
-  Settings as SettingsIcon,
-  Upload,
-  FolderOpen
-} from 'lucide-react'
 
 /** Cross-platform basename — splits on `/` and `\` so Windows paths render
  *  the filename (not the full absolute path) in the title bar. */
@@ -21,173 +14,224 @@ function basename(p: string): string {
   return parts[parts.length - 1] || p
 }
 
+type ScreenName = 'main' | 'design-system'
+
 export function App(): JSX.Element {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ state: 'pending' })
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
-  const [platform, setPlatform] = useState<string>('darwin')
   const [version, setVersion] = useState<string>('0.1.0')
   const [bagPath, setBagPath] = useState<string | null>(null)
+  // Transient local screen state — replaced by zustand useUIStore in Phase 6.
+  // Only `design-system` is reachable today, via ⌘⇧D below.
+  const [screen, setScreen] = useState<ScreenName>('main')
 
-  // Get initial values and subscribe to Docker status changes
+  const { theme, toggle: toggleTheme } = useTheme()
+
+  // Initial Docker status + version + subscribe to status changes.
   useEffect(() => {
     if (!window.datapilot) return
-
-    // App info
-    void window.datapilot.app.platform().then(setPlatform)
     void window.datapilot.app.version().then(setVersion)
-
-    // Initial Docker status
     void window.datapilot.docker.status().then(setDockerStatus)
-
-    // Initial Theme
-    void window.datapilot.theme.get().then((t) => {
-      const activeTheme = t === 'system' ? 'dark' : t
-      setTheme(activeTheme)
-      document.documentElement.setAttribute('data-theme', activeTheme)
-    })
-
-    // Listen to changes
-    const unsubscribe = window.datapilot.docker.onStatusChanged((status) => {
-      setDockerStatus(status)
-    })
-
-    return () => {
-      unsubscribe()
-    }
+    const unsubscribe = window.datapilot.docker.onStatusChanged(setDockerStatus)
+    return () => unsubscribe()
   }, [])
 
-  const handleRetry = () => {
-    if (window.datapilot) {
-      setDockerStatus({ state: 'pending' })
-      void window.datapilot.docker.retry()
+  // Dev-only ⌘⇧D / Ctrl+Shift+D toggles the DesignSystem gallery.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault()
+        setScreen((s) => (s === 'design-system' ? 'main' : 'design-system'))
+      }
     }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  if (import.meta.env.DEV && screen === 'design-system') {
+    return <DesignSystem onExit={() => setScreen('main')} />
   }
 
-  const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark'
-    setTheme(nextTheme)
-    document.documentElement.setAttribute('data-theme', nextTheme)
-    if (window.datapilot) {
-      void window.datapilot.theme.set(nextTheme)
-    }
+  const handleRetry = () => {
+    if (!window.datapilot) return
+    setDockerStatus({ state: 'pending' })
+    void window.datapilot.docker.retry()
   }
 
   const pickBagFile = async () => {
-    if (window.datapilot) {
-      const file = await window.datapilot.file.pickBag()
-      if (file) {
-        setBagPath(file)
-      }
-    }
+    if (!window.datapilot) return
+    const file = await window.datapilot.file.pickBag()
+    if (file) setBagPath(file)
   }
 
-  // Render Setup screen on pending/error
+  // Render Setup screen on pending / error states.
   if (dockerStatus.state !== 'ready') {
-    return <Setup status={dockerStatus} onRetry={handleRetry} />
+    return (
+      <WindowChrome className="fade-in">
+        <Titlebar
+          left={<Traffic />}
+          center={
+            <span>
+              <b>DataPilot</b> · Setup
+            </span>
+          }
+          right={
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon
+                onClick={toggleTheme}
+                title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+              >
+                {theme === 'dark' ? <Icon.Sun size={13} /> : <Icon.Moon size={13} />}
+              </Button>
+              <Pill size="sm" tone="ghost" mono>
+                v{version}
+              </Pill>
+            </>
+          }
+        />
+        <div className="body">
+          <Setup status={dockerStatus} onRetry={handleRetry} />
+        </div>
+      </WindowChrome>
+    )
   }
 
-  // Ready State: Main Dashboard
+  // Ready: main dashboard placeholder. Real Copilot Workspace lands in Phase 6.
   return (
-    <div className="window fade-in">
-      {/* Title bar */}
-      <div className="titlebar">
-        {platform === 'darwin' ? (
-          <div style={{ width: 72, height: 12 }} />
-        ) : (
-          <div className="traffic">
-            <span className="dot red" />
-            <span className="dot yellow" />
-            <span className="dot green" />
-          </div>
-        )}
-        <div className="title">
-          {bagPath ? (
-            <span>
-              <b>DataPilot</b> · {basename(bagPath)} — Loaded session
-            </span>
+    <WindowChrome className="fade-in">
+      <Titlebar
+        left={<Traffic />}
+        center={
+          bagPath ? (
+            <span><b>DataPilot</b> · {basename(bagPath)} — Loaded session</span>
           ) : (
-            <span>
-              <b>DataPilot</b> · No active session — Load a bag to begin
-            </span>
-          )}
-        </div>
-        <div className="titlebar-actions">
-          <button
-            className="btn ghost icon sm"
-            onClick={toggleTheme}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-          >
-            {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
-          </button>
-          <span className="pill sm ghost mono">v{version}</span>
-          <span className="pill sm ok">
-            <span className="swatch" />
-            local stack
-          </span>
-        </div>
-      </div>
+            <span><b>DataPilot</b> · No active session — Load a bag to begin</span>
+          )
+        }
+        right={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
+              onClick={toggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            >
+              {theme === 'dark' ? <Icon.Sun size={13} /> : <Icon.Moon size={13} />}
+            </Button>
+            <Pill size="sm" tone="ghost" mono>v{version}</Pill>
+            <Pill size="sm" tone="ok" swatch>local stack</Pill>
+          </>
+        }
+      />
 
-      {/* Main Body */}
       <div className="body">
-        {/* Navigation Rail */}
-        <div className="rail">
-          <div className="rail-logo">D</div>
-          <button className="rail-btn active" title="Copilot">
-            <MessageSquare size={18} />
-          </button>
-          <button className="rail-btn" title="Fleet">
-            <LayoutGrid size={18} />
-          </button>
-          <button className="rail-btn" title="Search">
-            <Search size={18} />
-          </button>
-          <button className="rail-btn" title="Replay">
-            <PlayCircle size={18} />
-          </button>
+        <Rail>
+          <RailButton icon={<Icon.Chat size={18} />} label="Copilot" active />
+          <RailButton icon={<Icon.Fleet size={18} />} label="Fleet" />
+          <RailButton icon={<Icon.Search size={18} />} label="Search" />
+          <RailButton icon={<Icon.Replay size={18} />} label="Replay" />
           <div className="rail-spacer" />
-          <button className="rail-btn" title="Agents & MCP">
-            <Cpu size={18} />
-          </button>
-          <button className="rail-btn" title="Settings">
-            <SettingsIcon size={18} />
-          </button>
-        </div>
+          <RailButton icon={<Icon.Bot size={18} />} label="Agents & MCP" />
+          <RailButton icon={<Icon.Settings size={18} />} label="Settings" />
+        </Rail>
 
-        {/* Dashboard Placeholder */}
-        <div className="flex1 flex flex-col items-center justify-center p-8 bg-bg-0 text-center gap-6">
-          <div className="w-16 h-16 rounded-2xl bg-accent-bg border border-accent/20 flex items-center justify-center text-accent">
-            <FolderOpen size={32} />
+        <div
+          className="flex1"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 32,
+            background: 'var(--color-bg-0)',
+            textAlign: 'center',
+            gap: 24,
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: 16,
+              background: 'var(--color-accent-bg)',
+              border: '1px solid oklch(0.50 0.12 235 / 0.4)',
+              display: 'grid',
+              placeItems: 'center',
+              color: 'var(--color-accent)',
+            }}
+          >
+            <Icon.File size={32} />
           </div>
-          <div className="flex flex-col gap-2 max-w-md">
-            <h2 className="text-xl font-semibold text-text-0">Local Environment Active</h2>
-            <p className="text-sm text-text-2">
-              The SQLite database, Neo4j knowledge graph, FastAPI engine, and all 5 worker daemons are connected and ready to process bags.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480 }}>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: 'var(--color-text-0)' }}>
+              Local environment active
+            </h2>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-2)' }}>
+              The SQLite database, Neo4j knowledge graph, FastAPI engine, and 5 MCP workers are
+              connected and ready to ingest bags.
             </p>
           </div>
-          <div className="flex gap-4 mt-2">
-            <button onClick={pickBagFile} className="btn primary row gap-2 h-9 px-4">
-              <Upload size={14} />
-              <span>Load ROS bag</span>
-            </button>
-            <button
-              onClick={() => setBagPath('/sample_bags/lidar_failure.mcap')}
-              className="btn ghost border-border-1 row gap-2 h-9 px-4"
-            >
-              <span>Load demo bag</span>
-            </button>
+
+          <div className="row gap-3" style={{ marginTop: 8 }}>
+            <Button variant="primary" onClick={pickBagFile}>
+              <Icon.Upload size={14} /> Load ROS bag
+            </Button>
+            <Button onClick={() => setBagPath('/sample_bags/lidar_failure.mcap')}>
+              Load demo bag
+            </Button>
           </div>
 
           {bagPath && (
-            <div className="mt-8 px-4 py-3 rounded-lg bg-bg-1 border border-border-1 max-w-xl w-full text-left row gap-3">
-              <div className="w-2 h-2 rounded-full bg-ok pulse" />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-text-3 font-semibold uppercase tracking-wider">Loaded File</div>
-                <div className="text-sm text-text-1 truncate mono font-medium">{bagPath}</div>
+            <div
+              className="row gap-3"
+              style={{
+                marginTop: 16,
+                padding: '12px 16px',
+                borderRadius: 8,
+                background: 'var(--color-bg-1)',
+                border: '1px solid var(--color-border-1)',
+                maxWidth: 560,
+                width: '100%',
+                textAlign: 'left',
+              }}
+            >
+              <span
+                aria-hidden
+                className="pulse"
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 50,
+                  background: 'var(--color-ok)',
+                  boxShadow: '0 0 8px var(--color-ok)',
+                  flexShrink: 0,
+                }}
+              />
+              <div className="flex1" style={{ minWidth: 0 }}>
+                <div className="section-h" style={{ marginBottom: 2 }}>Loaded file</div>
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--color-text-1)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={bagPath}
+                >
+                  {bagPath}
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </WindowChrome>
   )
 }

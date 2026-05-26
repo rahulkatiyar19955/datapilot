@@ -1,16 +1,7 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { DockerStatus } from '@shared/ipc'
-import {
-  RefreshCw,
-  Terminal,
-  Copy,
-  Check,
-  Activity,
-  AlertOctagon,
-  ShieldAlert,
-  Network,
-  DownloadCloud
-} from 'lucide-react'
+import { Icon } from '@renderer/components/Icon'
+import { Button } from '@renderer/components/ui'
 
 interface SetupProps {
   status: DockerStatus
@@ -18,14 +9,28 @@ interface SetupProps {
 }
 
 export function Setup({ status, onRetry }: SetupProps): JSX.Element {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  // Track the "show checkmark" timeout so rapid re-clicks don't pile up
+  // overlapping timers (which would prematurely reset the indicator) and so
+  // we cancel it on unmount instead of calling setState on a dead component.
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(text)
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopied(null)
+        copyTimeoutRef.current = null
+      }, 2000)
     })
   }
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
 
   if (status.state === 'pending') {
     return (
@@ -33,11 +38,13 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
         <div className="setup-card items-center justify-center py-16 text-center">
           <div className="setup-logo pulse">D</div>
           <div className="flex flex-col gap-2 mt-6">
-            <h1 className="setup-title pulse">Orchestrating Environment</h1>
-            <p className="setup-subtitle">Initializing Neo4j database, FastAPI backend, and MCP workers...</p>
+            <h1 className="setup-title pulse">Orchestrating environment</h1>
+            <p className="setup-subtitle">
+              Initializing Neo4j database, FastAPI backend, and MCP workers…
+            </p>
           </div>
           <div className="flex items-center gap-2 mt-8 px-4 py-2 rounded bg-bg-2 border border-border-1 text-text-3 font-mono text-xs">
-            <RefreshCw className="animate-spin text-accent" size={14} />
+            <Icon.Refresh size={14} style={{ animation: 'spin 1.4s linear infinite' }} />
             <span>docker compose status: pending</span>
           </div>
         </div>
@@ -45,7 +52,9 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
     )
   }
 
-  // Error state
+  // Defensive guard for the (currently unused) 'ready' branch — the parent
+  // App.tsx unmounts Setup once status flips to ready, so this is just a
+  // type-narrowing nicety.
   if (status.state !== 'error') {
     return (
       <div className="setup-container">
@@ -57,18 +66,18 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
   }
 
   const { code, message } = status
-  let title = 'Environment Setup Error'
+  let title = 'Environment setup error'
   let subtitle = 'DataPilot was unable to start the local Docker services stack.'
-  let icon = <AlertOctagon size={24} className="text-danger" />
-  let remediationTitle = 'Suggested Resolution'
+  let icon = <Icon.Alert size={24} style={{ color: 'var(--color-danger)' }} />
+  let remediationTitle = 'Suggested resolution'
   let remediationContent: JSX.Element | null = null
   let showOpenDockerBtn = false
 
   switch (code) {
     case 'daemon_off':
-      title = 'Docker Daemon Offline'
+      title = 'Docker daemon offline'
       subtitle = 'Docker Desktop is not running on your host system.'
-      icon = <AlertOctagon size={24} className="text-danger" />
+      icon = <Icon.Alert size={24} style={{ color: 'var(--color-danger)' }} />
       remediationContent = (
         <div className="flex flex-col gap-2">
           <p className="text-text-2">
@@ -82,76 +91,93 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
       showOpenDockerBtn = true
       break
 
-    case 'permission_denied':
-      title = 'Docker Socket Permission Denied'
+    case 'permission_denied': {
+      title = 'Docker socket permission denied'
       subtitle = 'Insufficient permissions to connect to the Docker socket.'
-      icon = <ShieldAlert size={24} className="text-danger" />
-      remediationTitle = 'Terminal Resolution'
+      icon = <Icon.Alert size={24} style={{ color: 'var(--color-danger)' }} />
+      remediationTitle = 'Terminal resolution'
       const chmodCmd = 'sudo chmod 666 /var/run/docker.sock'
       remediationContent = (
         <div className="flex flex-col gap-3">
           <p className="text-text-2">
-            The application encountered an permission error (<code className="mono text-danger text-xs bg-bg-2 px-1 rounded">EACCES</code>) when trying to access the Unix domain socket. Run the following command in your terminal to grant read/write access:
+            The application encountered a permission error (
+            <code className="mono text-danger text-xs bg-bg-2 px-1 rounded">EACCES</code>
+            ) when trying to access the Unix domain socket. Run the following command in your terminal
+            to grant read/write access:
           </p>
           <div className="setup-code-block">
             <span className="row gap-2">
-              <Terminal size={14} className="text-text-3" />
+              <Icon.Terminal size={14} style={{ color: 'var(--color-text-3)' }} />
               <span className="setup-code-cmd text-text-0 mono select-all">{chmodCmd}</span>
             </span>
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
+              icon
               onClick={() => copyToClipboard(chmodCmd)}
-              className="btn sm icon"
               title="Copy to clipboard"
             >
-              {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
-            </button>
+              {copied === chmodCmd ? (
+                <Icon.Check size={13} style={{ color: 'var(--color-ok)' }} />
+              ) : (
+                <Icon.File size={13} />
+              )}
+            </Button>
           </div>
           <p className="text-text-3 text-xs italic">
-            Note: This command changes the socket permissions locally to allow standard processes to connect.
+            Note: this command changes the socket permissions locally so standard processes can connect.
           </p>
         </div>
       )
       break
+    }
 
-    case 'port_conflict':
-      title = 'Network Port Conflict'
+    case 'port_conflict': {
+      title = 'Network port conflict'
       subtitle = 'Required ports (7474, 7687, or 8000) are already bound.'
-      icon = <Network size={24} className="text-danger" />
-      remediationTitle = 'Conflicting Processes'
+      icon = <Icon.Alert size={24} style={{ color: 'var(--color-danger)' }} />
+      remediationTitle = 'Conflicting processes'
       const conflictCmd = 'lsof -i :7474 -i :7687 -i :8000'
       remediationContent = (
         <div className="flex flex-col gap-3">
           <p className="text-text-2">
-            Another service or background process on your machine is using the ports needed by Neo4j or FastAPI. Run this command to find the process ID:
+            Another service on your machine is using the ports needed by Neo4j or FastAPI. Run this
+            command to find the conflicting process IDs:
           </p>
           <div className="setup-code-block">
             <span className="row gap-2">
-              <Terminal size={14} className="text-text-3" />
+              <Icon.Terminal size={14} style={{ color: 'var(--color-text-3)' }} />
               <span className="setup-code-cmd text-text-0 mono select-all">{conflictCmd}</span>
             </span>
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
+              icon
               onClick={() => copyToClipboard(conflictCmd)}
-              className="btn sm icon"
               title="Copy to clipboard"
             >
-              {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
-            </button>
+              {copied === conflictCmd ? (
+                <Icon.Check size={13} style={{ color: 'var(--color-ok)' }} />
+              ) : (
+                <Icon.File size={13} />
+              )}
+            </Button>
           </div>
-          <p className="text-text-2">
-            Terminate the conflicting processes or services, then click retry.
-          </p>
+          <p className="text-text-2">Terminate the conflicting processes or services, then retry.</p>
         </div>
       )
       break
+    }
 
     case 'image_pull_failed':
-      title = 'Registry Ingestion Failure'
-      subtitle = 'Unable to pull required docker images or build containers.'
-      icon = <DownloadCloud size={24} className="text-danger" />
+      title = 'Registry ingestion failure'
+      subtitle = 'Unable to pull required Docker images or build containers.'
+      icon = <Icon.Download size={24} style={{ color: 'var(--color-danger)' }} />
       remediationContent = (
         <div className="flex flex-col gap-2">
           <p className="text-text-2">
-            The docker orchestrator was unable to pull <code className="mono text-xs bg-bg-2 px-1 rounded">neo4j:5-community</code> or build local images.
+            The Docker orchestrator was unable to pull{' '}
+            <code className="mono text-xs bg-bg-2 px-1 rounded">neo4j:5-community</code> or build local images.
           </p>
           <p className="text-text-2 font-medium">
             Please verify you have a stable internet connection and that Docker has registry access.
@@ -161,14 +187,12 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
       break
 
     default:
-      title = 'Integration Stack Failure'
+      title = 'Integration stack failure'
       subtitle = 'An unexpected error occurred during container startup.'
-      icon = <AlertOctagon size={24} className="text-danger" />
+      icon = <Icon.Alert size={24} style={{ color: 'var(--color-danger)' }} />
       remediationContent = (
         <div className="flex flex-col gap-2">
-          <p className="text-text-2">
-            The environment could not boot successfully. Details:
-          </p>
+          <p className="text-text-2">The environment could not boot successfully. Details:</p>
           <pre className="mono text-xs text-danger bg-bg-2 p-3 rounded border border-border-1 max-h-36 overflow-y-auto whitespace-pre-wrap select-all">
             {message}
           </pre>
@@ -182,8 +206,8 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
         <div className="setup-header">
           <div className="setup-logo">D</div>
           <div className="setup-title-group">
-            <h1 className="setup-title">Environment Setup</h1>
-            <p className="setup-subtitle">Dependency & Stack Verification</p>
+            <h1 className="setup-title">Environment setup</h1>
+            <p className="setup-subtitle">Dependency &amp; stack verification</p>
           </div>
         </div>
 
@@ -202,23 +226,19 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
 
         <div className="setup-actions">
           {showOpenDockerBtn && (
-            <button
-              onClick={onRetry}
-              className="btn primary"
-              title="Open Docker Desktop and Retry"
-            >
-              <Activity size={14} className="mr-1" />
-              Launch Docker & Retry
-            </button>
+            <Button variant="primary" onClick={onRetry} title="Open Docker Desktop and retry">
+              <Icon.Activity size={14} />
+              Launch Docker &amp; Retry
+            </Button>
           )}
-          <button
+          <Button
+            variant={showOpenDockerBtn ? 'ghost' : 'primary'}
             onClick={onRetry}
-            className={`btn ${showOpenDockerBtn ? 'ghost border-border-1' : 'primary'}`}
             title="Retry connecting to Docker"
           >
-            <RefreshCw size={14} className="mr-1" />
-            Retry Connection
-          </button>
+            <Icon.Refresh size={14} />
+            Retry connection
+          </Button>
         </div>
       </div>
     </div>
