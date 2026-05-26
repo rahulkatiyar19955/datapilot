@@ -8,6 +8,26 @@
 
 DataPilot is an **Electron desktop app** that orchestrates a local Docker stack (FastAPI + LangGraph + Neo4j + 5 MCP workers) to debug ROS rosbags entirely on the engineer's machine. All chart visualizations are bespoke inline SVG, theme tokens are OKLCH, and the UI ships **six** top-level screens.
 
+### 1.0 Frontend stack decision: Vite + React 19 (not Next.js)
+
+**Decision**: the renderer is **Vite + React 19** (via `electron-vite`), not Next.js. Captured here so future contributors do not re-litigate.
+
+| Factor | Vite + React 19 (chosen) | Next.js |
+| :--- | :--- | :--- |
+| SSR / server components | not needed inside an Electron window | overkill |
+| Routing | mock uses a `screen` zustand store (no URLs) — App Router unused | adds value only with URL routes |
+| Build pipeline | one `electron-vite` config drives main + preload + renderer | dual: `next build && next export` → Electron loads from `file://`. This dual pipeline is the #1 reason teams end up splitting `electron/` + `frontend/` folders |
+| HMR in Electron | native, instant | works via tools like `nextron` but slower |
+| Bundle size / cold start | smaller, faster | larger, slower |
+| shadcn/ui, Tailwind v4, OKLCH tokens | all work fine | all work fine |
+| Future web companion | components/stores/tokens port to Next.js later without changes | already there |
+
+The decisive point: the mock's navigation is `useState('copilot')` — a screen-state variable, not a URL router. Next.js's biggest value-add would be something we'd actively work around. We get no SSR benefit (the user is the only "user"; nothing to index, nothing to pre-render). Avoiding the dual-build coordination buys us a clean single Node package.
+
+If a deployed web companion is ever needed, the renderer extracts cleanly into a separate Next.js app — the components, shadcn primitives, Tailwind tokens, and zustand stores all port without modification. Keeping Vite now does not close that door.
+
+Font loading uses `@fontsource/*` npm packages, not `next/font`.
+
 ### 1.1 Document map
 
 | Concern | Source of truth |
@@ -189,7 +209,7 @@ Keys entered via the Settings → Models screen are encrypted with Electron's `s
 
 1. **Single Node package at the repo root** — no pnpm workspaces. `package.json` lists Electron + Vite + React + Tailwind + shadcn dependencies together. One `pnpm-lock.yaml`, one `node_modules`.
 2. Bootstrap with `pnpm create @quick-start/electron@latest datapilot -- --template react-ts` (electron-vite's official template), then strip the example renderer and replace with the empty `src/` layout from §1.2.
-3. Install renderer libs: `tailwindcss@^4`, `@tailwindcss/vite`, `lucide-react`, `zustand`, `@tanstack/react-query`, `clsx`, `class-variance-authority`, shadcn-ui via `pnpm dlx shadcn@latest init`.
+3. Install renderer libs: `tailwindcss@^4`, `@tailwindcss/vite`, `lucide-react`, `zustand`, `@tanstack/react-query`, `clsx`, `class-variance-authority`, `@fontsource/inter`, `@fontsource/jetbrains-mono`; shadcn-ui via `pnpm dlx shadcn@latest init`.
 4. `electron.vite.config.ts` defines three Vite configs:
    - `main` → `src/main/index.ts`, externalizes `dockerode`, `electron`
    - `preload` → `src/preload/index.ts`
@@ -304,7 +324,7 @@ Port `mock_design/styles.css` verbatim into Tailwind v4 `@theme` (imported once 
 }
 ```
 
-Fonts loaded with `next/font` (Inter + JetBrains Mono).
+Fonts loaded via `@fontsource/inter` and `@fontsource/jetbrains-mono` (npm packages that ship the .woff2 files), imported once from `src/renderer/main.tsx`. No network fetch at runtime; bundled by Vite. Avoids `next/font` (Next.js-only) and the runtime hit of Google Fonts.
 
 ### 2.2 Primitive components — `src/renderer/components/`
 
