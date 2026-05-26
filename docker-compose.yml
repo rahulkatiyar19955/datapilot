@@ -34,7 +34,8 @@ services:
       - neo4j-data:/data
       - neo4j-logs:/logs
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474 || exit 1"]
+      # neo4j:5-community doesn't ship wget; use bash's /dev/tcp to probe the port.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/7474' || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 12

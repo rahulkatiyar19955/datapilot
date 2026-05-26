@@ -25,6 +25,12 @@ export default defineConfig({
       outDir: 'out/preload',
       rollupOptions: {
         input: resolve(__dirname, 'src/preload/index.ts'),
+        // sandbox: true requires CommonJS preload (ESM .mjs is unsupported in
+        // sandboxed preloads). Force CJS + .js so main can load it cleanly.
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].js',
+        },
       },
     },
     resolve: {

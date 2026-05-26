@@ -7,7 +7,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml ./
-RUN uv pip install --system --no-cache .
+# `package = false` in pyproject.toml — install deps only, not the project itself.
+RUN uv pip install --system --no-cache -r pyproject.toml
 
 COPY app ./app
 

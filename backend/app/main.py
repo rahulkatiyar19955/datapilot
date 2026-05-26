@@ -15,17 +15,13 @@ app = FastAPI(
     description="Local-first ROS 2 debugging copilot — FastAPI + LangGraph.",
 )
 
-# Renderer runs at file:// in prod and http://localhost:5173 in dev.
-# Electron's main process talks to us at http://localhost:8000; the renderer
-# may also call directly (same-origin via the Electron protocol or via the
-# Vite dev server proxy in dev).
+# This is a local-first backend that only listens on the user's machine.
+# In production the renderer loads via file:// which sends Origin: null (not a
+# real origin), so an enumerated allow-list cannot match. allow_credentials is
+# False, so wildcard origins are safe.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:8000",
-        "file://",
-    ],
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

@@ -8,6 +8,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
+  // app.quit() schedules exit; exit immediately so the rest of this file
+  // doesn't register listeners or call whenReady() in the second instance.
+  process.exit(0)
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -30,7 +33,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // preload uses Node modules for IPC plumbing
+      // Preload uses only `contextBridge` and `ipcRenderer` from electron itself —
+      // no Node APIs — so the Chromium sandbox can stay on.
+      sandbox: true,
     },
   })
 
