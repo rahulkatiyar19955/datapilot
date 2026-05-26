@@ -1,18 +1,24 @@
 # DataPilot 🚀
 
-> AI-powered copilot that helps robotics engineers debug ROS robots instantly.
+<p align="center">
+  <strong>AI-powered copilot that helps robotics engineers debug ROS robots instantly.</strong>
+</p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="mock_design/datapilot_ui_mockup_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="mock_design/datapilot_ui_mockup_light.png">
-  <img alt="DataPilot UI Mockup" src="mock_design/datapilot_ui_mockup_dark.png">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="mock_design/datapilot_ui_mockup_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="mock_design/datapilot_ui_mockup_light.png">
+    <img alt="DataPilot UI Mockup" src="mock_design/datapilot_ui_mockup_dark.png" width="100%">
+  </picture>
+</p>
 
-[![Electron](https://img.shields.io/badge/Shell-Electron%20%2B%20Vite%20%2B%20React%2019-blue?style=for-the-badge&logo=electron)](https://www.electronjs.org/)
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python-green?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Neo4j](https://img.shields.io/badge/GraphDB-Neo4j-red?style=for-the-badge&logo=neo4j)](https://neo4j.com/)
-[![Docker](https://img.shields.io/badge/Container-Docker%20Compose-blue?style=for-the-badge&logo=docker)](https://www.docker.com/)
-[![LangGraph](https://img.shields.io/badge/Agents-LangGraph-orange?style=for-the-badge)](https://www.langchain.com/langgraph)
+<p align="center">
+  <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/Shell-Electron%20%2B%20Vite%20%2B%20React%2019-blue?style=for-the-badge&logo=electron" alt="Electron"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python-green?style=for-the-badge&logo=fastapi" alt="FastAPI"></a>
+  <a href="https://neo4j.com/"><img src="https://img.shields.io/badge/GraphDB-Neo4j-red?style=for-the-badge&logo=neo4j" alt="Neo4j"></a>
+  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Container-Docker%20Compose-blue?style=for-the-badge&logo=docker" alt="Docker"></a>
+  <a href="https://www.langchain.com/langgraph"><img src="https://img.shields.io/badge/Agents-LangGraph-orange?style=for-the-badge" alt="LangGraph"></a>
+</p>
 
 ---
 
