@@ -266,6 +266,9 @@ class DockerOrchestrator {
 
   /**
    * Polls a URL until it responds with a 200 status code.
+   * Calls `response.resume()` so the socket is released back to the agent
+   * pool — otherwise the unconsumed response body keeps it open and we
+   * eventually exhaust the agent's connection limit.
    */
   private async pollLiveness(url: string, timeoutMs: number): Promise<boolean> {
     const start = Date.now()
@@ -273,6 +276,7 @@ class DockerOrchestrator {
       try {
         const res = await new Promise<number>((resolve, reject) => {
           const req = http.get(url, (response) => {
+            response.resume() // drain & free the socket
             resolve(response.statusCode || 0)
           })
           req.on('error', reject)
@@ -528,22 +532,21 @@ class DockerOrchestrator {
     })
 
     let cancelled = false
+    // Docker multiplexes stdout+stderr with an 8-byte header per frame when
+    // TTY isn't allocated. TCP does NOT preserve message boundaries — any given
+    // `data` event may carry a partial header or a partial payload, so we have
+    // to accumulate across events and only emit complete frames.
+    let logBuffer = Buffer.alloc(0)
     const onData = (buf: Buffer) => {
       if (cancelled) return
-      // Docker multiplexes stdout+stderr with an 8-byte header per frame when
-      // TTY isn't allocated. Strip it best-effort so consumers see clean text.
-      let cursor = 0
-      while (cursor < buf.length) {
-        if (cursor + 8 > buf.length) {
-          onChunk(buf.slice(cursor).toString('utf-8'))
-          break
-        }
+      logBuffer = Buffer.concat([logBuffer, buf])
+      while (logBuffer.length >= 8) {
         // bytes 4..8 = big-endian payload length
-        const len = buf.readUInt32BE(cursor + 4)
-        const payload = buf.slice(cursor + 8, cursor + 8 + len)
+        const len = logBuffer.readUInt32BE(4)
+        if (logBuffer.length < 8 + len) break // wait for the rest of the payload
+        const payload = logBuffer.subarray(8, 8 + len)
         if (payload.length > 0) onChunk(payload.toString('utf-8'))
-        cursor += 8 + len
-        if (len === 0) break // safety
+        logBuffer = logBuffer.subarray(8 + len)
       }
     }
 

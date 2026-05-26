@@ -9,16 +9,25 @@ const activeLogStreams = new Map<string, () => void>()
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
 
-// Simple file-backed settings store
+// Simple file-backed settings store.
+//
+// If the settings file is unreadable or malformed, we rotate it to `.bak`
+// before returning empty. Otherwise the next writeSettings() would silently
+// overwrite a partially-recoverable file (including encrypted API keys) with
+// just the one key the caller is setting — irreversible data loss.
 function readSettings(): Record<string, string> {
+  if (!fs.existsSync(settingsPath)) return {}
   try {
-    if (fs.existsSync(settingsPath)) {
-      return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
-    }
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
   } catch (err) {
-    console.error('Failed to read settings:', err)
+    console.error('Failed to read settings — rotating to .bak:', err)
+    try {
+      fs.renameSync(settingsPath, `${settingsPath}.bak.${Date.now()}`)
+    } catch (renameErr) {
+      console.error('Failed to rotate corrupted settings file:', renameErr)
+    }
+    return {}
   }
-  return {}
 }
 
 function writeSettings(settings: Record<string, string>): void {
@@ -84,9 +93,12 @@ export function registerIpcHandlers(): void {
     activeLogStreams.delete(subId)
   })
 
-  // File Picker
-  ipcMain.handle('file:pickBag', async (_event): Promise<string | null> => {
-    const win = BrowserWindow.getFocusedWindow()
+  // File Picker.
+  // Use `fromWebContents(event.sender)` rather than `getFocusedWindow()` — the
+  // user can lose focus between clicking the button and the IPC arriving here,
+  // which would otherwise return null or the wrong window.
+  ipcMain.handle('file:pickBag', async (event): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return null
 
     const result = await dialog.showOpenDialog(win, {

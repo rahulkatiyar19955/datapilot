@@ -14,6 +14,13 @@ import {
   FolderOpen
 } from 'lucide-react'
 
+/** Cross-platform basename — splits on `/` and `\` so Windows paths render
+ *  the filename (not the full absolute path) in the title bar. */
+function basename(p: string): string {
+  const parts = p.split(/[/\\]/)
+  return parts[parts.length - 1] || p
+}
+
 export function App(): JSX.Element {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ state: 'pending' })
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
@@ -96,7 +103,7 @@ export function App(): JSX.Element {
         <div className="title">
           {bagPath ? (
             <span>
-              <b>DataPilot</b> · {bagPath.split('/').pop() || bagPath} — Loaded session
+              <b>DataPilot</b> · {basename(bagPath)} — Loaded session
             </span>
           ) : (
             <span>
