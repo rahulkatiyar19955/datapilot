@@ -8,23 +8,28 @@ This document outlines the system architecture, component breakdown, data flow, 
 
 DataPilot is structured as an **Electron-based desktop application** that runs entirely on the engineer's local machine. This ensures that massive binary robotics telemetry files (rosbags) do not need to be uploaded to cloud systems. 
 
-The Electron application uses a hybrid architecture:
-- **Renderer Process (Frontend)**: Runs the HTML/JS/CSS user interface.
+The Electron application uses a hybrid architecture built as a **single unified Node package**:
+- **Renderer Process**: Runs the React 19 user interface built with Vite (via `electron-vite`).
 - **Main Process (Node.js)**: Runs in the OS environment, communicates with the **Docker socket** (`/var/run/docker.sock`) to orchestrate local backend microservices, and manages native OS functions (e.g., file pickers).
+- **Preload Script**: Exposes a contextBridge API to the Renderer using typed contracts defined in a shared namespace.
 - **Backend Stack (Local Docker Services)**: Spin up dynamically via the Docker socket when Electron starts. This stack includes the **FastAPI Backend (embedding LangGraph)**, a **Neo4j Graph Database** (Fleet Knowledge Graph), and **5 MCP Workers** running as separate containers.
 - **LLM Connectivity**: The orchestrator coordinates with either cloud APIs (**OpenAI**, **Gemini**) or a locally hosted **Llama** model.
 
 ```mermaid
 graph TD
     %% Electron App Shell
-    subgraph Electron [Electron Desktop App Shell]
-        subgraph Renderer [Renderer Process - UI]
+    subgraph Electron [Electron Desktop App Shell - Single Node Package]
+        subgraph Renderer [Renderer Process - React 19 + Vite]
             UI[Web Dashboard]
-            Timeline[Log Timeline Chart]
+            Timeline[Log Timeline Bespoke SVG Chart]
             ChatBox[AI Chat Interface]
             SetupScreen[Setup & Troubleshooting Screen]
-        </tbody>
+        end
         
+        subgraph Preload [Preload Bridge]
+            Bridge[contextBridge API]
+        end
+
         subgraph Main [Main Process - Node.js]
             DockerOrch[Docker Socket Orchestrator]
             IPC[IPC Bridge Handler]
@@ -52,7 +57,7 @@ graph TD
     %% Storage
     subgraph Storage [Host Local Storage]
         FS[(Raw Rosbags / Host File System)]
-        SQLite[(SQLite DB: Sessions & Agent Checkpoints)]
+        SQLite[(SQLite DB: Sessions, Config, Costs & Agent Checkpoints)]
     end
 
     %% LLM Providers
@@ -63,7 +68,8 @@ graph TD
     end
 
     %% Electron Internal Communication
-    UI -->|IPC Events| IPC
+    UI -->|IPC Events| Bridge
+    Bridge -->|Secure Bridge| IPC
     IPC -->|Check Docker Daemon| DockerOrch
     IPC -->|Trigger Local Selector| FilePicker
     SetupScreen -->|Poll Setup Verification| DockerOrch
@@ -92,35 +98,42 @@ graph TD
 
 ## 2. Component Breakdown
 
-### A. Electron Client
-* **Renderer Process (Frontend)**:
-  - Renders the primary workspace dashboards, log timeline charts, and the diagnostic chat terminal using HTML, JavaScript, and Vanilla CSS.
-  - Implements a dedicated **Setup & Troubleshooting Screen** that is displayed if the Docker socket check fails (providing clear setup guides for Docker Desktop, daemon settings, and permissions).
-  - Handles drag-and-drop actions, mapping file drops directly to host filepaths using native Electron file properties.
+### A. Electron Client (Vite + React 19)
+* **Renderer Process**:
+  - Renders the primary workspace dashboards, log timeline charts, and the diagnostic chat terminal using React 19.
+  - All chart visualizations (Timeline, Metric, Map, KGraph, MiniTimeline) are **bespoke React + SVG components** ported directly from the mock design workspace. This ensures exact visual design parity and prevents layout reflows without external charting library overhead.
+  - Implements a dedicated **Setup & Troubleshooting Screen** that is displayed if the Docker socket check fails.
+  - Screen switching is **rail-driven** via a global `screen` state managed in a `zustand` store (no URL router or hash routing).
+  - Fonts are bundled locally and loaded via `@fontsource/inter` and `@fontsource/jetbrains-mono` npm packages.
+* **Preload Script**:
+  - Exposes `contextBridge.exposeInMainWorld('datapilot', ...)` using typed IPC channels and payload schemas imported from the shared codebase, eliminating raw `ipcRenderer` calls and ensuring type-safety.
 * **Main Process (Node.js)**:
-  - **Docker Socket Orchestrator**: Connects to the Unix socket `/var/run/docker.sock` (or Windows pipe `//./pipe/docker_engine`). On startup, it checks if Docker is running and pulls/launches the containerized stack (FastAPI, Neo4j, and the 5 MCP servers).
-  - **IPC Bridge Handler**: Coordinates secure IPC (Inter-Process Communication) events between the Renderer and Main process.
+  - **Docker Socket Orchestrator**: Connects to the Unix socket `/var/run/docker.sock` via `dockerode`. On startup, it checks if Docker is active and pulls/launches the containerized stack (FastAPI, Neo4j, and the 5 MCP servers).
+  - **IPC Bridge Handler**: Coordinates secure IPC events between the Renderer and Main process.
   - **Native File System Picker**: Opens native OS dialogs to select local `.mcap` files, bypassing browser file upload limits.
 
-### B. Backend Container (FastAPI + LangGraph)
+### B. Shared Module (`src/shared/`)
+* Declares standard, immutable IPC channel contracts and request/response structures.
+* Declares backend API response interfaces mirroring the FastAPI Pydantic schemas, ensuring type contracts across the backend and Electron processes cannot drift.
+
+### C. Backend Container (FastAPI + LangGraph)
 * **API Layer**: Exposes endpoints on local port `8000` to feed dashboard analytics and manage chat sessions.
-* **Ingestion Pipeline**: Rather than performing a web upload, the API receives the absolute path of the local file on the host (the directory is shared/mounted into the containers). The parser reads the bag directly from disk, saving metadata to SQLite and seeding Neo4j.
-* **LangGraph Orchestrator**: Runs the plan-and-execute state machine. It uses LangGraph's standard SQLite saver to persist run checkpoints locally.
+* **LangGraph Orchestrator**: Runs the supervisor-specialist multi-agent state machine. It uses LangGraph's standard SQLite saver to persist state checkpoints locally.
 * **LLM Router**: Dispatches reasoning queries based on user settings:
   - **OpenAI**: Connects to cloud API.
   - **Gemini**: Connects to cloud API.
-  - **Llama**: Connects to a locally running model instance (e.g., Ollama running on `http://localhost:11434` or Llama.cpp compatibility endpoints).
+  - **Llama**: Connects to a locally running model instance (e.g., Ollama running on port `11434`).
 
-### C. MCP Workers (Docker Services)
+### D. MCP Workers (Docker Services)
 Decoupled services running inside independent Docker containers on the local machine:
 1. **RosbagReader**: Extracts topic schemas, diagnostic streams, and TF transformations from raw bags.
-2. **TrajectoryAnalyzer**: Computes velocities and plots goal deviations.
+2. **TrajectoryAnalyzer**: Computes velocities and plots path deviations.
 3. **PlannerFailureInspector**: Checks navigation path states and costmaps.
 4. **AnomalyDetector**: Performs statistical evaluation on high-frequency channels.
-5. **ReportComposer**: Creates final summaries.
+5. **ReportComposer**: Formats tree characters and recommendations.
 
-### D. Storage & Database Layer
-* **Host Local Filesystem**: Stores original rosbags and SQLite file database (`db.sqlite`), allowing data persistence across container restarts.
+### E. Storage & Database Layer
+* **Host Local Filesystem**: Stores original rosbags and the SQLite database (`db.sqlite`), allowing data persistence across container restarts.
 * **Neo4j Container**: Runs inside the local Docker environment, hosting the Fleet Knowledge Graph and storing log embeddings locally.
 
 ---
@@ -132,7 +145,7 @@ Decoupled services running inside independent Docker containers on the local mac
 sequenceDiagram
     autonumber
     actor User
-    participant ElectronUI as Renderer (UI)
+    participant ElectronUI as Renderer (React 19)
     participant Main as Main Process (Node)
     participant Docker as Docker Daemon
     participant Stack as Docker Services (FastAPI, Neo4j, MCP)
@@ -159,7 +172,7 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     actor User
-    participant ElectronUI as Renderer (UI)
+    participant ElectronUI as Renderer (React 19)
     participant Main as Main Process (Node)
     participant API as FastAPI Backend (Docker)
     participant Neo4j as Neo4j DB (Docker)
@@ -199,23 +212,27 @@ sequenceDiagram
 
 | Layer | Recommended Choice | Justification |
 | :--- | :--- | :--- |
-| **Desktop Shell** | **Electron** | Cross-platform desktop runtime packaging Chromium and Node.js. Enables native OS integration and local execution. |
-| **Frontend Framework** | Next.js (Static Export) / React | Rendered inside Electron. Runs locally without remote hosting servers. |
-| **Styling** | Vanilla CSS | Custom responsive styles for a premium desktop app shell. |
-| **Docker Orchestration** | `dockerode` (Node.js SDK) | Node.js library that accesses `/var/run/docker.sock` to check statuses and start/stop containers. |
-| **Backend Framework** | FastAPI (within Docker) | Exposes endpoints to Electron, running containerized to maintain Python version consistency. |
-| **Orchestrator** | LangGraph (Python) | Embedded in backend container, manages multi-step agent logic. |
-| **Database** | SQLite + Neo4j | SQLite on host handles sessions and checkpointers. Neo4j in Docker stores graphs and vectors. |
-| **LLM APIs** | OpenAI, Gemini, Llama | The application routes requests to either cloud API gateways or local ports (e.g. Ollama for Llama execution). |
+| **Desktop Shell** | **Electron** | Cross-platform desktop runtime packaging Chromium and Node.js. |
+| **Build System** | **electron-vite** | Unified tooling config that compiles the main process, preload scripts, and renderer with Hot Module Replacement (HMR). |
+| **Renderer Framework**| **React 19** | Modern UI framework for rendering dynamic states, without Next.js/SSR overhead. |
+| **Styling** | **Vanilla CSS** | Porting the custom mock design theme verbatim into Tailwind v4 `@theme` tokens. |
+| **Fonts** | **@fontsource/inter** & **@fontsource/jetbrains-mono** | Local npm font packages bundled by Vite, avoiding Google Fonts network calls. |
+| **Docker Orchestration** | **dockerode** (Node.js SDK) | Node.js library that accesses `/var/run/docker.sock` to manage containers. |
+| **Backend Framework** | **FastAPI** (within Docker) | Exposes endpoints to Electron, running containerized to maintain Python version consistency. |
+| **Orchestrator** | **LangGraph** (Python) | Embedded in backend container, manages multi-step agent logic. |
+| **Database** | **SQLite + Neo4j** | SQLite on host handles sessions and checkpointers. Neo4j in Docker stores graphs and vectors. |
+| **Charts** | **Bespoke React + SVG Components** | Custom SVG graphics for timeline, metrics, and KGraph views, matching the mock design with zero external dependencies. |
+| **LLM APIs** | **OpenAI, Gemini, Llama** | Routes queries to either cloud API gateways or local ports (e.g. Ollama for local Llama). |
 
 ---
 
 ## 5. Database Schema Draft
-The SQLite and Neo4j schemas remain consistent with the hybrid structure described in the web architecture, with the following modifications:
-1. **SQLite Database location**: The database file `db.sqlite` is saved to the local host's user data directory (e.g., `~/Library/Application Support/datapilot/` on macOS).
-2. **Rosbag File paths**: The `sessions` table in SQLite stores the absolute file path on the host instead of a relative upload folder path.
+
+### SQLite Schema
+Used for session metadata, settings configs, cost tracking, and LangGraph state checkpointers.
 
 ```sql
+-- Represents a single loaded rosbag debugging session
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY, -- UUID
     filename TEXT NOT NULL,
@@ -229,7 +246,59 @@ CREATE TABLE sessions (
     topics_list TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Maintains conversational thread history per session
+CREATE TABLE chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL, -- 'user' or 'assistant'
+    content TEXT NOT NULL,
+    execution_steps TEXT, -- JSON array of tools executed in this turn
+    citations TEXT, -- JSON array of source log links
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+-- Specialist model selection overrides (mutable via Agents UI)
+CREATE TABLE agent_models (
+    specialist TEXT PRIMARY KEY,
+    model_id TEXT NOT NULL
+);
+
+-- Token usage and cost tracking telemetry per chat turn
+CREATE TABLE session_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    turn_index INTEGER NOT NULL,
+    tokens_in INTEGER NOT NULL,
+    tokens_out INTEGER NOT NULL,
+    est_cost_usd REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+-- LangGraph State Checkpointer table (handled automatically by SqliteSaver)
+-- Table: langgraph_checkpoints (survives Electron app restarts)
 ```
+
+### Neo4j Fleet Graph Schema
+Models fleet metadata, runs, occurrences, and root causes.
+
+#### Nodes
+- **Robot** (`id`, `model`, `fleet`, `metadata`)
+- **Component** (`name`, `type` [sensor/planner/controller/actuator], `serial`)
+- **Run** (`bag_id`, `start_time`, `end_time`, `environment_tags`, `log_embedding` [vector])
+- **Incident** (`timestamp`, `description`, `severity`, `anomaly_score`)
+- **FailureMode** (`name`, `description`, `typical_root_cause`, `resolution_steps`)
+- **EnvironmentCondition** (`rain`, `lighting`, `temperature`, `payload`)
+
+#### Relationships
+- `(Robot)-[:HAS_COMPONENT]->(Component)`
+- `(Incident)-[:DURING_RUN]->(Run)`
+- `(Incident)-[:CAUSED_BY]->(FailureMode)`
+- `(Incident)-[:OCCURRED_IN]->(EnvironmentCondition)`
+- `(Incident)-[:RESOLVED_BY]->(FailureMode)`
+- `(Run)-[:SIMILAR_TO]->(Run)` (Semantic link based on log_embedding cosine similarity)
 
 ---
 
@@ -237,7 +306,7 @@ CREATE TABLE sessions (
 
 All endpoints are hosted on `http://localhost:8000/api`.
 
-### Session Creation (replacing Upload)
+### Session Creation
 
 #### 1. Ingest Local File
 * **Method**: `POST`
@@ -266,19 +335,8 @@ All endpoints are hosted on `http://localhost:8000/api`.
   ```json
   {
     "message": "Why did the navigation abort?",
-    "provider": "llama", -- "openai" | "gemini" | "llama"
-    "local_endpoint": "http://localhost:11434" -- Optional endpoint for local models
+    "composer_provider": "llama", -- "openai" | "gemini" | "llama"
+    "composer_model": "llama-3.3-8b"
   }
   ```
-* **Response**: `200 OK` (Standard structured JSON containing response, audit_trail, and citations).
-
----
-
-## 7. Setup & Troubleshooting Framework
-
-If the connection to `/var/run/docker.sock` fails, the Electron Renderer process transitions to a dedicated **Setup Panel** providing the following verification guides:
-
-1. **Docker Status Check**: Checks if the Docker Desktop application is launched and running.
-2. **Settings Configuration**: Instructs users to enable *"Allow the default Docker socket to be used"* in Docker Desktop settings under Advanced/Security options.
-3. **Permission Check**: Displays the shell command to execute if permissions are denied (e.g. `sudo chmod 666 /var/run/docker.sock` on Linux/macOS).
-4. **Daemon Verification**: Details how to check daemon status via terminal commands (`docker ps`).
+* **Response**: `200 OK` (Streams SSE payload containing plan steps status, token streams, and final structured citations/audit_trail blocks).
