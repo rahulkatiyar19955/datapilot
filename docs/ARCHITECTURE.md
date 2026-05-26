@@ -6,157 +6,191 @@ This document outlines the system architecture, component breakdown, data flow, 
 
 ## 1. High-Level System Architecture
 
-DataPilot is structured as an AI-native full-stack application built for robotics diagnostic operations. It embeds a **LangGraph Orchestrator** inside a **FastAPI backend** to manage stateful, multi-step diagnostics. The backend dispatches tasks to decoupled, domain-specific **MCP Workers** running as separate microservices. The data layer is hybrid, combining **SQLite** (for web app session metadata, chat histories, and agent checkpointing) with a **Neo4j Property Graph** (for fleet causal indexing and native vector search).
+DataPilot is structured as an **Electron-based desktop application** that runs entirely on the engineer's local machine. This ensures that massive binary robotics telemetry files (rosbags) do not need to be uploaded to cloud systems. 
+
+The Electron application uses a hybrid architecture:
+- **Renderer Process (Frontend)**: Runs the HTML/JS/CSS user interface.
+- **Main Process (Node.js)**: Runs in the OS environment, communicates with the **Docker socket** (`/var/run/docker.sock`) to orchestrate local backend microservices, and manages native OS functions (e.g., file pickers).
+- **Backend Stack (Local Docker Services)**: Spin up dynamically via the Docker socket when Electron starts. This stack includes the **FastAPI Backend (embedding LangGraph)**, a **Neo4j Graph Database** (Fleet Knowledge Graph), and **5 MCP Workers** running as separate containers.
+- **LLM Connectivity**: The orchestrator coordinates with either cloud APIs (**OpenAI**, **Gemini**) or a locally hosted **Llama** model.
 
 ```mermaid
 graph TD
-    %% User Interface
-    subgraph Frontend [Next.js + TS Client]
-        UI[Web Dashboard]
-        UploadPanel[Upload Zone]
-        Timeline[Log Timeline Chart]
-        ChatBox[AI Chat Interface]
+    %% Electron App Shell
+    subgraph Electron [Electron Desktop App Shell]
+        subgraph Renderer [Renderer Process - UI]
+            UI[Web Dashboard]
+            Timeline[Log Timeline Chart]
+            ChatBox[AI Chat Interface]
+            SetupScreen[Setup & Troubleshooting Screen]
+        </tbody>
+        
+        subgraph Main [Main Process - Node.js]
+            DockerOrch[Docker Socket Orchestrator]
+            IPC[IPC Bridge Handler]
+            FilePicker[Native File System Picker]
+        end
     end
 
-    %% Backend Services
-    subgraph Backend [FastAPI Server]
-        API[FastAPI Router]
-        Parser[Rosbag Ingestion Parser]
-        LGO[LangGraph Orchestrator]
-        MCPClient[MCP Client Manager]
-        SQLiteCheck[SQLite Checkpointer]
+    %% Host System Docker Socket
+    DockerSock[(Docker Host Socket: /var/run/docker.sock)]
+
+    %% Orchestrated Container Services
+    subgraph Services [Docker Containers - Launched by Electron]
+        API[FastAPI Backend + LangGraph]
+        Neo4j[(Neo4j DB: Fleet KG & Vectors)]
+        
+        subgraph MCPWorkers [MCP Workers]
+            RosbagReader[Rosbag Reader Service]
+            TrajectoryAnalyzer[Trajectory Analyzer Service]
+            PlannerFailureInspector[Planner Failure Inspector Service]
+            AnomalyDetector[Anomaly Detector Service]
+            ReportComposer[Report Composer Service]
+        end
     end
 
-    %% Decoupled MCP Worker Services
-    subgraph MCPWorkers [MCP Workers - Separate Microservices]
-        RosbagReader[Rosbag Reader Worker]
-        TrajectoryAnalyzer[Trajectory Analyzer Worker]
-        PlannerFailureInspector[Planner Failure Inspector Worker]
-        AnomalyDetector[Anomaly Detector Worker]
-        ReportComposer[Report Composer Worker]
+    %% Storage
+    subgraph Storage [Host Local Storage]
+        FS[(Raw Rosbags / Host File System)]
+        SQLite[(SQLite DB: Sessions & Agent Checkpoints)]
     end
 
-    %% Storage & AI Engines
-    subgraph Storage [Data Storage]
-        FS[(Local File System: Raw Bags)]
-        SQLite[(SQLite DB: Session/Chat & Agent Checkpoints)]
-        Neo4j[(Neo4j DB: Fleet Knowledge Graph & Vectors)]
+    %% LLM Providers
+    subgraph LLMProviders [Supported LLM API Providers]
+        OpenAI[OpenAI Cloud API]
+        Gemini[Google Gemini Cloud API]
+        Llama[Local Llama API - e.g. Ollama/Llama.cpp]
     end
 
-    subgraph External [External LLM API]
-        LLM[OpenAI / Anthropic APIs]
-    end
+    %% Electron Internal Communication
+    UI -->|IPC Events| IPC
+    IPC -->|Check Docker Daemon| DockerOrch
+    IPC -->|Trigger Local Selector| FilePicker
+    SetupScreen -->|Poll Setup Verification| DockerOrch
 
-    %% Frontend to Backend Connections
-    UI -->|HTTPS requests| API
-    UploadPanel -->|Upload Bag| API
-    ChatBox -->|Send Query| API
+    %% Main Process Orchestrating Docker
+    DockerOrch -->|Manage Containers| DockerSock
+    DockerSock -->|Run / Monitor| Services
 
-    %% Backend Core Connections
-    API -->|Save Raw Bag| FS
-    API -->|Trigger Ingestion| Parser
-    API -->|Invoke Chat Run| LGO
-    LGO -->|Read/Write State| SQLiteCheck
-    SQLiteCheck -->|Persist Checkpoints| SQLite
+    %% Frontend to Backend API Calls
+    UI -.->|Local HTTP Port 8000| API
 
-    %% Ingestion to Storage
-    Parser -->|Read raw file| FS
-    Parser -->|Write SQL metadata| SQLite
-    Parser -->|Populate Fleet Graph & Embeddings| Neo4j
+    %% API Data flows
+    API -->|Read/Write State| SQLite
+    API -->|Causal & Vector Queries| Neo4j
+    API -->|MCP JSON-RPC| MCPWorkers
+    MCPWorkers -->|Mount Local Path| FS
+    FilePicker -->|Pass Local File Path| API
 
-    %% Orchestrator to Workers & LLMs
-    LGO -->|Plan/Replan LLM Calls| LLM
-    LGO -->|Dispatch Steps| MCPClient
-    MCPClient -->|MCP SSE / JSON RPC| RosbagReader
-    MCPClient -->|MCP SSE / JSON RPC| TrajectoryAnalyzer
-    MCPClient -->|MCP SSE / JSON RPC| PlannerFailureInspector
-    MCPClient -->|MCP SSE / JSON RPC| AnomalyDetector
-    MCPClient -->|MCP SSE / JSON RPC| ReportComposer
-
-    %% MCP Workers Reading from Disk/Storage
-    RosbagReader -->|Extract Binary Data| FS
-    LGO -->|Causal & Semantic Queries| Neo4j
+    %% LLM Routing
+    API -->|Cloud Queries| OpenAI
+    API -->|Cloud Queries| Gemini
+    API -->|Local Queries| Llama
 ```
 
 ---
 
 ## 2. Component Breakdown
 
-### A. Frontend (Next.js + TypeScript)
-* **Ingestion Dashboard**: Manages drag-and-drop file uploads, progress bars, and state management for active debugging sessions.
-* **Timeline Visualizer**: Renders an interactive, zoomable timeline chart of warnings, errors, and critical messages from the bag, allowing developers to isolate the time window of a crash.
-* **RAG Chat Window**: A conversational terminal-style UI allowing developers to talk to the AI engine, rendering markdown, audit trails (agent steps), citations, and charts.
-* **Status Monitor**: Displays robot metadata extracted from the bag (e.g., node list, total topics, and diagnostics).
+### A. Electron Client
+* **Renderer Process (Frontend)**:
+  - Renders the primary workspace dashboards, log timeline charts, and the diagnostic chat terminal using HTML, JavaScript, and Vanilla CSS.
+  - Implements a dedicated **Setup & Troubleshooting Screen** that is displayed if the Docker socket check fails (providing clear setup guides for Docker Desktop, daemon settings, and permissions).
+  - Handles drag-and-drop actions, mapping file drops directly to host filepaths using native Electron file properties.
+* **Main Process (Node.js)**:
+  - **Docker Socket Orchestrator**: Connects to the Unix socket `/var/run/docker.sock` (or Windows pipe `//./pipe/docker_engine`). On startup, it checks if Docker is running and pulls/launches the containerized stack (FastAPI, Neo4j, and the 5 MCP servers).
+  - **IPC Bridge Handler**: Coordinates secure IPC (Inter-Process Communication) events between the Renderer and Main process.
+  - **Native File System Picker**: Opens native OS dialogs to select local `.mcap` files, bypassing browser file upload limits.
 
-### B. Backend (FastAPI + LangGraph)
-* **API Layer**: Handles routing for file uploads, sessions listing, chat interactions, and telemetry logs retrieval.
-* **Rosbag Ingestion Parser**: Custom pipeline that opens ROS 2 `.mcap` or `.db3` bags using Python readers, extracts text records, filters for critical logs (severity > INFO), writes SQLite metadata, and seeds the Neo4j Fleet Graph.
-* **LangGraph Orchestrator**: The core supervisor agent. It coordinates the **Plan-and-Execute loop**:
-  1. *Planner*: Uses LLMs to decompose a user query into a sequence of worker calls.
-  2. *Executor*: Resolves and triggers worker tools sequentially through the MCP client.
-  3. *Replan*: Inspects outputs and dynamically injects new diagnostic steps (e.g., if an anomaly is flagged).
-  4. *Finalize*: Synthesizes final results.
-  It uses LangGraph's standard SQLite saver to checkpoint graph states, enabling full auditability.
-* **MCP Client Manager**: Establishes connections with independent Model Context Protocol (MCP) server endpoints via Server-Sent Events (SSE). It handles tool discovery, parameters schema validation, and request/response streaming.
+### B. Backend Container (FastAPI + LangGraph)
+* **API Layer**: Exposes endpoints on local port `8000` to feed dashboard analytics and manage chat sessions.
+* **Ingestion Pipeline**: Rather than performing a web upload, the API receives the absolute path of the local file on the host (the directory is shared/mounted into the containers). The parser reads the bag directly from disk, saving metadata to SQLite and seeding Neo4j.
+* **LangGraph Orchestrator**: Runs the plan-and-execute state machine. It uses LangGraph's standard SQLite saver to persist run checkpoints locally.
+* **LLM Router**: Dispatches reasoning queries based on user settings:
+  - **OpenAI**: Connects to cloud API.
+  - **Gemini**: Connects to cloud API.
+  - **Llama**: Connects to a locally running model instance (e.g., Ollama running on `http://localhost:11434` or Llama.cpp compatibility endpoints).
 
-### C. MCP Workers (Separate Microservices)
-Each worker is deployed as an independent microservice exposing its capability over an MCP interface:
-1. **RosbagReader**: Opens a bag, extracts topic streams, diagnostics, and transform tree (TF) parameters within a requested time window.
-2. **TrajectoryAnalyzer**: Computes velocity profiles, goal distances, path deviations, and checks for motor constraints.
-3. **PlannerFailureInspector**: Examines navigation planner server state transitions, costmap inflation data, and recovery attempts.
-4. **AnomalyDetector**: Performs statistical anomaly detection on high-frequency numeric streams (velocity command, CPU utilization, battery voltage).
-5. **ReportComposer**: Combines diagnostic details into a structured, natural-language explanation and builds timeline charts.
+### C. MCP Workers (Docker Services)
+Decoupled services running inside independent Docker containers on the local machine:
+1. **RosbagReader**: Extracts topic schemas, diagnostic streams, and TF transformations from raw bags.
+2. **TrajectoryAnalyzer**: Computes velocities and plots goal deviations.
+3. **PlannerFailureInspector**: Checks navigation path states and costmaps.
+4. **AnomalyDetector**: Performs statistical evaluation on high-frequency channels.
+5. **ReportComposer**: Creates final summaries.
 
 ### D. Storage & Database Layer
-* **Raw Filesystem**: Stores uploaded rosbags locally on disk.
-* **SQLite (SQL DB)**: Stores Next.js session records, chat messages, and LangGraph's agent state checkpoints.
-* **Neo4j (Knowledge Graph DB)**: Acts as the Fleet Knowledge Graph. It models multi-hop causal relationships (Robot → Component → Run → Incident → FailureMode) and supports hybrid queries using Neo4j's native vector index for log embeddings.
+* **Host Local Filesystem**: Stores original rosbags and SQLite file database (`db.sqlite`), allowing data persistence across container restarts.
+* **Neo4j Container**: Runs inside the local Docker environment, hosting the Fleet Knowledge Graph and storing log embeddings locally.
 
 ---
 
 ## 3. Data Flow Diagram
 
-The diagram below details the multi-agent orchestration flow when a user asks a root-cause question:
-
+### Phase 1: Startup & Docker Verification Flow
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Robotics Engineer
-    participant FE as Frontend (Next.js)
-    participant BE as Backend (FastAPI)
-    participant LGO as LangGraph Orchestrator
-    participant Neo4j as Neo4j Graph DB
-    participant MCP as MCP Worker Services
-    participant LLM as LLM API (Claude/OpenAI)
+    actor User
+    participant ElectronUI as Renderer (UI)
+    participant Main as Main Process (Node)
+    participant Docker as Docker Daemon
+    participant Stack as Docker Services (FastAPI, Neo4j, MCP)
 
-    User->>FE: Chat Input: "Why did robot-12 stop near loading bay 3?"
-    FE->>BE: POST /api/sessions/{id}/chat {message: "..."}
-    BE->>LGO: Start Graph Execution (State: {message, session_id})
-    LGO->>Neo4j: Query Hybrid Search (Vector similarity + Graph context)
-    Neo4j-->>LGO: Return similar past runs, incidents & components
-    LGO->>LLM: Planner Prompt: (Query + Graph context)
-    LLM-->>LGO: Proposed steps: [RosbagReader, TrajectoryAnalyzer, AnomalyDetector]
+    User->>Main: Launch DataPilot Desktop App
+    Main->>Docker: Verify Connection to /var/run/docker.sock
     
-    loop Execute Plan
-        LGO->>MCP: Call RosbagReader (Extract diagnostics at t-10s to t+10s)
-        MCP-->>LGO: Return raw logs
-        LGO->>MCP: Call TrajectoryAnalyzer (Verify velocity)
-        MCP-->>LGO: Return velocity data (deceleration spike)
-        LGO->>MCP: Call AnomalyDetector (Flag anomalies)
-        MCP-->>LGO: Return: Inflation spike in costmap at t+5.3s
+    alt Daemon Offline / Access Denied
+        Docker-->>Main: Connection Error (Permissions/Daemon Off)
+        Main->>ElectronUI: Emit IPC "docker-error" {code, help_guide}
+        ElectronUI->>User: Render Setup & Troubleshooting Screen (Guide)
+    else Daemon Online
+        Docker-->>Main: Connection Success
+        Main->>Docker: Spin up container services (FastAPI, Neo4j, MCP)
+        Docker-->>Stack: Launch Stack
+        Stack-->>Main: Services Healthy
+        Main->>ElectronUI: Emit IPC "docker-ready"
+        ElectronUI->>User: Render Active Dashboard
     end
+```
 
-    LGO->>LLM: Replan Prompt: (State + Anomaly Results)
-    LLM-->>LGO: Inject New Step: [PlannerFailureInspector]
-    LGO->>MCP: Call PlannerFailureInspector (Check obstacle costmaps)
-    MCP-->>LGO: Return: Stale depth sensor feedback / noise detected
+### Phase 2: Ingestion & Chat Analysis Flow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant ElectronUI as Renderer (UI)
+    participant Main as Main Process (Node)
+    participant API as FastAPI Backend (Docker)
+    participant Neo4j as Neo4j DB (Docker)
+    participant MCP as MCP Services (Docker)
+    participant LLM as LLM Router (API/Local)
+
+    User->>ElectronUI: Click "Load Local MCAP File"
+    ElectronUI->>Main: Trigger IPC "open-file-dialog"
+    Main-->>ElectronUI: Return absolute path (e.g. "/Users/kati/bags/log.mcap")
+    ElectronUI->>API: POST /api/sessions/create {filepath: "/Users/kati/bags/log.mcap"}
     
-    LGO->>LLM: Finalize Prompt: (Synthesize all observations)
-    LLM-->>LGO: Final diagnostics report
-    LGO->>Neo4j: Create Node (:Incident) linked to FailureMode: sensor_noise_costmap_spike
-    LGO-->>BE: Complete Graph Run (Save checkpoints to SQLite)
-    BE-->>FE: Return report, audit trail & execution timeline
-    FE->>User: Display diagnosis, citations, and agent execution steps
+    API->>API: Parse log.mcap directly from mounted host path
+    API->>Neo4j: Populate Fleet nodes & Vectorize warnings/errors
+    API-->>ElectronUI: Return session status (Ingestion Completed)
+    
+    User->>ElectronUI: Ask: "Why did navigation fail?" & Choose LLM ("Llama")
+    ElectronUI->>API: POST /api/sessions/{id}/chat {message, model: "llama"}
+    API->>API: Initialize LangGraph loop
+    API->>Neo4j: Read vector context
+    
+    loop Plan-and-Execute (LangGraph)
+        API->>LLM: Plan next step using local Llama API
+        LLM-->>API: Execute MCP Worker "AnomalyDetector"
+        API->>MCP: Call AnomalyDetector (JSON-RPC)
+        MCP-->>API: Return observations
+    end
+    
+    API->>LLM: Formulate Report (Llama API)
+    LLM-->>API: Diagnostic response
+    API-->>ElectronUI: Return response & steps audit trail
+    ElectronUI->>User: Render diagnosis and execution timeline
 ```
 
 ---
@@ -165,220 +199,86 @@ sequenceDiagram
 
 | Layer | Recommended Choice | Justification |
 | :--- | :--- | :--- |
-| **Frontend Framework** | Next.js (App Router) | Production-ready with Server-Side Rendering (SSR), React Server Components (RSC), and built-in routing. |
-| **Styling** | Vanilla CSS | Provides complete customizability to design a stunning, responsive, dark-mode terminal layout. |
-| **State & Fetching** | Axios + TanStack Query | Ideal for managing server state, polling parse progress, and caching chat sessions. |
-| **Charts** | Recharts / Chart.js | Easy to build interactive timeline charts with click handlers. |
-| **Backend Language** | Python 3.10+ | Necessary for importing ROS bag reader libraries, LangGraph, and MCP client/server SDKs. |
-| **Backend Framework** | FastAPI | Async requests, automatic Swagger docs, Pydantic type safety, and fast response latency. |
-| **Orchestrator** | LangGraph (Python) | Explicit state management, built-in checkpointing, model-agnosticism, and native plan-and-execute support. |
-| **Worker Interface** | Model Context Protocol (MCP) | Open standard that decouples workers, supports schema discovery, and is language-neutral. |
-| **Relational Database**| SQLite | Lightweight SQL database, perfect for local Next.js session storage and LangGraph checkpoints. |
-| **Knowledge Graph** | Neo4j (v5.x) | Handles multi-hop causal chains, runs graph data science algorithms, and includes native vector indexing. |
-| **ROS Bag Parser** | `mcap` & `mcap-ros2-support` | Read modern MCAP files directly in Python without requiring a local ROS installation. |
-| **AI LLM API** | Anthropic Claude 3.5 Sonnet | Best-in-class reasoning for complex system debugging and large code/log contexts. |
+| **Desktop Shell** | **Electron** | Cross-platform desktop runtime packaging Chromium and Node.js. Enables native OS integration and local execution. |
+| **Frontend Framework** | Next.js (Static Export) / React | Rendered inside Electron. Runs locally without remote hosting servers. |
+| **Styling** | Vanilla CSS | Custom responsive styles for a premium desktop app shell. |
+| **Docker Orchestration** | `dockerode` (Node.js SDK) | Node.js library that accesses `/var/run/docker.sock` to check statuses and start/stop containers. |
+| **Backend Framework** | FastAPI (within Docker) | Exposes endpoints to Electron, running containerized to maintain Python version consistency. |
+| **Orchestrator** | LangGraph (Python) | Embedded in backend container, manages multi-step agent logic. |
+| **Database** | SQLite + Neo4j | SQLite on host handles sessions and checkpointers. Neo4j in Docker stores graphs and vectors. |
+| **LLM APIs** | OpenAI, Gemini, Llama | The application routes requests to either cloud API gateways or local ports (e.g. Ollama for Llama execution). |
 
 ---
 
 ## 5. Database Schema Draft
-
-### SQLite Schema
-Used for session management, chat histories, and LangGraph checkpoints.
+The SQLite and Neo4j schemas remain consistent with the hybrid structure described in the web architecture, with the following modifications:
+1. **SQLite Database location**: The database file `db.sqlite` is saved to the local host's user data directory (e.g., `~/Library/Application Support/datapilot/` on macOS).
+2. **Rosbag File paths**: The `sessions` table in SQLite stores the absolute file path on the host instead of a relative upload folder path.
 
 ```sql
--- Represents a single uploaded rosbag debugging session
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY, -- UUID
     filename TEXT NOT NULL,
-    filepath TEXT NOT NULL,
+    filepath TEXT NOT NULL, -- Absolute path on the host filesystem
     robot_name TEXT,
-    ros_version TEXT, -- "ROS1" or "ROS2"
+    ros_version TEXT,
     duration_seconds REAL,
-    start_time TEXT, -- ISO Timestamp
-    end_time TEXT, -- ISO Timestamp
+    start_time TEXT,
+    end_time TEXT,
     total_messages INTEGER,
-    topics_list TEXT, -- JSON array of strings
+    topics_list TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- Maintains conversational thread history per session
-CREATE TABLE chat_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    role TEXT NOT NULL, -- 'user' or 'assistant'
-    content TEXT NOT NULL,
-    execution_steps TEXT, -- JSON array of tools executed in this turn
-    citations TEXT, -- JSON array of source log links
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-
--- LangGraph State Checkpointer table (handled automatically by SqliteSaver)
--- Stores binary state records, thread IDs, and checkpoint details.
 ```
-
-### Neo4j Fleet Graph Schema
-Models fleet metadata, runs, occurrences, and root causes.
-
-#### Nodes
-- **Robot** (`id`, `model`, `fleet`, `metadata`)
-- **Component** (`name`, `type` [sensor/planner/controller/actuator], `serial`)
-- **Run** (`bag_id`, `start_time`, `end_time`, `environment_tags`, `log_embedding` [vector])
-- **Incident** (`timestamp`, `description`, `severity`, `anomaly_score`)
-- **FailureMode** (`name`, `description`, `typical_root_cause`, `resolution_steps`)
-- **EnvironmentCondition** (`rain`, `lighting`, `temperature`, `payload`)
-
-#### Relationships
-- `(Robot)-[:HAS_COMPONENT]->(Component)`
-- `(Incident)-[:DURING_RUN]->(Run)`
-- `(Incident)-[:CAUSED_BY]->(FailureMode)`
-- `(Incident)-[:OCCURRED_IN]->(EnvironmentCondition)`
-- `(Incident)-[:RESOLVED_BY]->(FailureMode)`
-- `(Run)-[:SIMILAR_TO]->(Run)` (Semantic link based on log_embedding cosine similarity)
 
 ---
 
 ## 6. API Endpoint Design
 
-All API endpoints are prefixed with `/api`.
+All endpoints are hosted on `http://localhost:8000/api`.
 
-### Ingestion endpoints
+### Session Creation (replacing Upload)
 
-#### 1. Upload Rosbag
+#### 1. Ingest Local File
 * **Method**: `POST`
-* **Path**: `/api/upload`
-* **Request**: Multi-part Form Data
-  * `file`: Binary file (.mcap or .db3)
+* **Path**: `/api/sessions/create`
+* **Request**:
+  ```json
+  {
+    "filepath": "/Users/kati/bags/nav_crash_sample.mcap"
+  }
+  ```
 * **Response**: `202 Accepted`
   ```json
   {
     "session_id": "8f8981df-83cd-41e9-86f2-1fb49cb45e99",
-    "filename": "nav_crash_sample.mcap",
+    "filepath": "/Users/kati/bags/nav_crash_sample.mcap",
     "status": "processing"
   }
   ```
 
-#### 2. Get Parsing Status
-* **Method**: `GET`
-* **Path**: `/api/sessions/{session_id}/status`
-* **Response**: `200 OK`
-  ```json
-  {
-    "session_id": "8f8981df-83cd-41e9-86f2-1fb49cb45e99",
-    "status": "completed", -- "processing", "failed", "completed"
-    "progress": 100,
-    "error_message": null
-  }
-  ```
+### Chat Debugging with LLM Selection
 
-### Session Analysis endpoints
-
-#### 3. Get Session Metadata
-* **Method**: `GET`
-* **Path**: `/api/sessions/{session_id}`
-* **Response**: `200 OK`
-  ```json
-  {
-    "session_id": "8f8981df-83cd-41e9-86f2-1fb49cb45e99",
-    "metadata": {
-      "filename": "nav_crash_sample.mcap",
-      "robot_name": "turtlebot4_03",
-      "duration_seconds": 124.5,
-      "topics": ["/rosout", "/diagnostics", "/cmd_vel", "/scan"],
-      "start_time": "2026-05-24T14:02:10Z"
-    }
-  }
-  ```
-
-#### 4. Get Log Timeline Data
-* **Method**: `GET`
-* **Path**: `/api/sessions/{session_id}/timeline`
-* **Response**: `200 OK`
-  ```json
-  {
-    "timeline": [
-      {
-        "timestamp_offset": 12.4,
-        "level": "WARN",
-        "node": "/lidar_driver_node",
-        "message": "Lidar packet timeout, retrying connection."
-      },
-      {
-        "timestamp_offset": 14.8,
-        "level": "ERROR",
-        "node": "/lidar_driver_node",
-        "message": "Lidar hardware communication lost."
-      }
-    ]
-  }
-  ```
-
-### Chat Debugging endpoints
-
-#### 5. Chat & Diagnose
+#### 2. Chat & Diagnose
 * **Method**: `POST`
 * **Path**: `/api/sessions/{session_id}/chat`
 * **Request**:
   ```json
   {
-    "message": "Why did the navigation abort at timestamp 14.8?"
+    "message": "Why did the navigation abort?",
+    "provider": "llama", -- "openai" | "gemini" | "llama"
+    "local_endpoint": "http://localhost:11434" -- Optional endpoint for local models
   }
   ```
-* **Response**: `200 OK`
-  ```json
-  {
-    "response": "The navigation aborted because the `/lidar_driver_node` crashed due to a hardware communication loss. This caused the dynamic obstacles costmap to receive stale data, triggering a safety abort in the `/controller_server` node.",
-    "audit_trail": {
-      "plan": ["RosbagReader", "TrajectoryAnalyzer", "AnomalyDetector", "PlannerFailureInspector"],
-      "execution_steps": [
-        {
-          "step": 1,
-          "worker": "RosbagReader",
-          "input": {"time_window": [4.8, 24.8], "topics": ["/rosout"]},
-          "status": "success"
-        },
-        {
-          "step": 2,
-          "worker": "TrajectoryAnalyzer",
-          "input": {"time_window": [4.8, 24.8]},
-          "status": "success"
-        },
-        {
-          "step": 3,
-          "worker": "AnomalyDetector",
-          "input": {"time_window": [4.8, 24.8]},
-          "status": "success",
-          "observation": "Costmap inflation spike at t+5.3s"
-        },
-        {
-          "step": 4,
-          "worker": "PlannerFailureInspector",
-          "input": {"time_window": [4.8, 24.8]},
-          "status": "success"
-        }
-      ],
-      "replanned": true,
-      "replanned_steps": ["PlannerFailureInspector"]
-    },
-    "citations": [
-      {
-        "timestamp_offset": 14.8,
-        "node": "/lidar_driver_node",
-        "log_level": "ERROR",
-        "message": "Lidar hardware communication lost."
-      }
-    ]
-  }
-  ```
+* **Response**: `200 OK` (Standard structured JSON containing response, audit_trail, and citations).
 
 ---
 
-## 7. Deployment Architecture
+## 7. Setup & Troubleshooting Framework
 
-For the 1-week hackathon, DataPilot is packaged using a multi-container **Docker Compose** layout:
+If the connection to `/var/run/docker.sock` fails, the Electron Renderer process transitions to a dedicated **Setup Panel** providing the following verification guides:
 
-* **Frontend Container**: Serves the Next.js application on port `3000`.
-* **Backend Container**: Runs the FastAPI web app on port `8000`. It acts as the LangGraph Orchestrator client and connects to the database services and MCP server endpoints.
-* **Neo4j Container**: Runs Neo4j Community Edition (port `7474` for browser GUI, `7687` for Bolt protocol), with vector indexing activated. A startup script seeds the database with initial model nodes.
-* **MCP Worker Containers**: Five independent lightweight Python services running on dedicated local ports, exposing their specific MCP JSON-RPC APIs over Server-Sent Events (SSE).
-* **SQLite Database File**: Bind-mounted in `./data/db.sqlite` to persist state across backend restarts.
+1. **Docker Status Check**: Checks if the Docker Desktop application is launched and running.
+2. **Settings Configuration**: Instructs users to enable *"Allow the default Docker socket to be used"* in Docker Desktop settings under Advanced/Security options.
+3. **Permission Check**: Displays the shell command to execute if permissions are denied (e.g. `sudo chmod 666 /var/run/docker.sock` on Linux/macOS).
+4. **Daemon Verification**: Details how to check daemon status via terminal commands (`docker ps`).
