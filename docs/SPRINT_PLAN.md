@@ -1,102 +1,104 @@
 # 7-Day Sprint Plan - DataPilot
 
-This plan organizes the 1-week build timeline for a 4-person team. It prioritizes achieving a working end-to-end MVP by Day 4, leaving ample buffer for UI polish, testing, and pitch/demo preparation.
+This plan organizes the 1-week build timeline for a 4-person team. It prioritizes achieving a working end-to-end multi-agent prototype by Day 4, leaving ample buffer for MCP service integration, UI polish, testing, and pitch/demo preparation.
 
 ---
 
 ## 👥 Team Roles & Responsibilities
 
-* **Dev 1: Lead Backend & Parser**
-  * Core FastAPI development, file system handling, SQLite setup, MCAP/ROS 2 binary parsing logic.
+* **Dev 1: Lead Backend & Orchestrator**
+  * FastAPI server routes, SQLite database setup, LangGraph state machine integration, SQLite checkpointer configuration.
 * **Dev 2: Frontend Engineer**
-  * Next.js dashboard development, UI layout (Tailwind), timeline charts (Recharts), API integration.
-* **Dev 3: ML & AI Specialist**
-  * Vector database indexing (Milvus), RAG search logic, context retrieval strategies, prompt engineering, LLM API client.
+  * Next.js dashboard development, terminal layout design (Vanilla CSS), timeline charts (Recharts), API integration, and audit trail/execution step UI.
+* **Dev 3: ML, Knowledge Graph & MCP Specialist**
+  * Neo4j property graph setup (nodes, relationships, indexes), native vector indexing, MCP tool schema generation, and independent MCP worker microservice coding.
 * **Dev 4: DevOps, Integration & Demo Prep (PM/Fullstack)**
-  * Docker Compose packaging, sample bag generation, end-to-end QA testing, pitch deck, demo video recording.
+  * Docker Compose multi-container orchestration, network binding setup, sample bag ingestion orchestration, E2E QA testing, pitch deck, and demo video production.
 
 ---
 
 ## 📅 Day-by-Day Execution Plan
 
 ### Day 1: Infrastructure Setup & Skeletons
-* **Daily Goal**: Establish the dev environment and deploy a connected "Hello World" monorepo.
-* **🔴 Non-Negotiable Outcome**: Both Next.js and FastAPI services running locally in Docker Compose and successfully communicating via a test HTTP endpoint.
+* **Daily Goal**: Establish the multi-container dev environment and verify base communications.
+* **🔴 Non-Negotiable Outcome**: Next.js, FastAPI, and Neo4j services running locally in Docker Compose and successfully communicating.
 * **Task Allocation**:
-  * **Dev 1**: Create FastAPI project structure, write Pydantic schemas, and set up database/folder skeletons.
-  * **Dev 2**: Scaffold Next.js + TS project, install dependencies (Tailwind, Lucide React, Axios), and design main app shell.
-  * **Dev 3**: Spin up local Milvus instance, verify embedding API keys (OpenAI/Anthropic), and prototype embedding test script.
-  * **Dev 4**: Write `Dockerfile` configurations, orchestrate `docker-compose.yml`, configure `.env.example`, and write `setup.sh`.
+  * **Dev 1**: Set up FastAPI skeleton, write Pydantic schemas, and define SQLite database connection.
+  * **Dev 2**: Scaffold Next.js + TS project, initialize Vanilla CSS styling theme, and construct main app shell.
+  * **Dev 3**: Spin up local Neo4j Docker container, verify embedding API keys (OpenAI/Anthropic), and write graph constraint scripts.
+  * **Dev 4**: Write Dockerfiles for frontend, backend, and database; configure `docker-compose.yml` skeleton (including stub configs for the 5 MCP workers).
 
 ---
 
-### Day 2: Rosbag Ingestion & File Upload UI
-* **Daily Goal**: Build the pipeline to ingest ROS 2 files and upload them from the UI.
-* **🔴 Non-Negotiable Outcome**: Frontend uploads an `.mcap` file to the backend, which parses the file headers and returns basic metadata.
+### Day 2: MCP Server Contracts & Drag-and-Drop Ingestion
+* **Daily Goal**: Define MCP worker schemas and build the file upload pipeline.
+* **🔴 Non-Negotiable Outcome**: Frontend uploads an `.mcap` file to the backend, which parses headers and returns metadata; MCP schemas are finalized.
 * **Task Allocation**:
-  * **Dev 1**: Write `app/services/parser.py` using python `mcap` library to parse bag header, topics list, duration, and extract raw `/rosout` messages.
-  * **Dev 2**: Design `UploadZone.tsx` utilizing a drag-and-drop file interface with a functional upload progress bar.
-  * **Dev 3**: Write text chunking strategies for ROS logs (e.g. grouping by time windows or nodes) and write test schema for Milvus.
+  * **Dev 1**: Write background upload handlers. Ingest bag headers, topics, duration, and save metadata to SQLite.
+  * **Dev 2**: Design `UploadZone` utilizing a drag-and-drop file interface with a functional upload progress bar.
+  * **Dev 3**: Define the strict JSON input/output schemas for the 5 MCP workers. Write base Python MCP wrappers.
   * **Dev 4**: Source 3 distinct sample rosbags (lidar failure, tf drift, navigation abort). Verify they are under 150MB. Set up `./sample_bags` directory.
 
 ---
 
-### Day 3: Ingestion Pipeline Integration & Timeline Base
-* **Daily Goal**: Connect parsing data directly to database storage and feed log counts to the UI timeline.
-* **🔴 Non-Negotiable Outcome**: Uploading a bag automatically populates SQLite with filtered logs (warnings/errors) and Milvus with vector embeddings, rendering a mock timeline.
+### Day 3: Ingestion to Databases & Timeline Base
+* **Daily Goal**: Populate relational and graph databases from ingestion and display log count charts.
+* **🔴 Non-Negotiable Outcome**: Uploading a bag writes metadata/checkpoints to SQLite, populates the Neo4j graph with Incident nodes, and displays a severity timeline in the UI.
 * **Task Allocation**:
-  * **Dev 1**: Wire FastAPI upload endpoint to trigger background parsing. Save metadata to `sessions` table and filtered logs to `filtered_logs` table.
-  * **Dev 2**: Implement `LogTimeline.tsx` using Recharts to visualize message counts grouped by error levels (Info, Warn, Error).
-  * **Dev 3**: Develop vector database insertion pipeline. Automatically vectorize and write logs to Milvus as they are parsed.
-  * **Dev 4**: Build the `/api/sessions/{id}` endpoint to return metadata summaries (topics, robot name, start/end timestamps).
+  * **Dev 1**: Extract critical logs (WARN/ERROR/FATAL) from the bag during ingestion and populate SQLite `filtered_logs` tables.
+  * **Dev 2**: Implement `LogTimeline` using Recharts to visualize message counts grouped by error levels.
+  * **Dev 3**: Code Neo4j database writers to parse logs, generate embeddings, insert vector index records, and link incident nodes to robot runs.
+  * **Dev 4**: Build the `/api/sessions/{id}` metadata and `/api/sessions/{id}/timeline` endpoints.
 
 ---
 
-### Day 4: RAG Pipeline Integration & Chat Interface (MVP Goal)
-* **Daily Goal**: Establish the core AI chat debugging loop.
-* **🔴 Non-Negotiable Outcome**: A user can type a question about a parsed bag, and the backend retrieves relevant logs, sends them to the LLM, and displays the response.
+### Day 4: LangGraph Orchestrator Integration (MVP Goal)
+* **Daily Goal**: Code the main LangGraph multi-agent diagnostic loop.
+* **🔴 Non-Negotiable Outcome**: A user can ask a diagnostic question; the backend Planner, Executor, and Finalizer nodes run in LangGraph and log execution steps.
 * **Task Allocation**:
-  * **Dev 1**: Create `/api/sessions/{id}/chat` endpoint. Coordinate calls between Milvus vector retriever and LLM service.
-  * **Dev 2**: Build `ChatTerminal.tsx` (terminal styling, markdown parsing, scrolling window, loading states). Connect it to the backend chat API.
-  * **Dev 3**: Code the RAG context retrieval logic. Implement a hybrid approach: query Milvus for semantic match AND fetch SQL warnings near relevant timestamps. Craft system prompt.
-  * **Dev 4**: Conduct end-to-end verification. Test querying *"Why did the robot stop?"* against the lidar failure sample bag. Document prompt responses.
+  * **Dev 1**: Code the LangGraph state machine (Planner, Executor, Replan, Finalizer) embedded inside FastAPI. Configure SQLite checkpointer.
+  * **Dev 2**: Build `ChatTerminal` component displaying markdown, citation hovercard links, and a collapsible "Agent Audit Trail" showing executed steps.
+  * **Dev 3**: Implement the MCP Client Manager inside FastAPI to connect to mock MCP servers and execute tool schemas.
+  * **Dev 4**: Connect frontend chat form to the `/api/sessions/{id}/chat` endpoint and verify the plan-and-execute sequence logs correctly.
 
 ---
 
-### Day 5: Timeline Interaction & Quick Health Check
-* **Daily Goal**: Enable direct visual interactions on the timeline and generate automated reports.
-* **🔴 Non-Negotiable Outcome**: Clicking on an error spike in the timeline zooms the log view and updates the chat context; automated report prints on file upload.
+### Day 5: Decoupled MCP Worker Services Implementation
+* **Daily Goal**: Replace mock MCP workers with independent microservices.
+* **🔴 Non-Negotiable Outcome**: Five separate MCP worker processes running as independent services, resolving real ROS bag files and telemetry data.
 * **Task Allocation**:
-  * **Dev 1**: Develop `/api/sessions/{id}/timeline` endpoint returning precise error/warning timestamps.
-  * **Dev 2**: Bind timeline click-handlers to update chat prompts (e.g. clicking a spike pre-fills: *"What happened at timestamp 14.2s?"*).
-  * **Dev 3**: Code the "Quick Diagnostics Report" service—an LLM agent that scans the global error list on upload to write a 3-bullet summary of the issue.
-  * **Dev 4**: Connect report output to UI. Audit application styling (colors, typography, spacing) for a premium dark-mode dashboard look.
+  * **Dev 1**: Code execution progress updates in LangGraph and expose intermediate step outputs to the API layer.
+  * **Dev 2**: Bind timeline clicks to auto-fill chat prompts (e.g. clicking a timeline spike pre-fills: *"Diagnose system failure around timestamp 14.8s"*).
+  * **Dev 3**: Code the logic for the 5 independent MCP worker services: `RosbagReader`, `TrajectoryAnalyzer`, `PlannerFailureInspector`, `AnomalyDetector`, and `ReportComposer`.
+  * **Dev 4**: Build Dockerfiles for each of the 5 MCP microservices, update `docker-compose.yml` to run all 5 containers, and resolve internal network ports.
 
 ---
 
-### Day 6: Feature Freeze, Optimizations & Bug Hunt
-* **Daily Goal**: Lock features down and ensure 100% reliability of the demo stack.
-* **🔴 Non-Negotiable Outcome**: Stable, fully frozen build that runs anywhere with a single docker-compose command, including pre-loaded demo bag configurations.
+### Day 6: Dynamic Replanning, Caching & Bug Hunt
+* **Daily Goal**: Configure dynamic loops, control limits, and run E2E diagnostics.
+* **🔴 Non-Negotiable Outcome**: Stable, fully frozen build that handles worker failure, gates infinite replan loops, and parses similar incidents via Neo4j.
 * **Task Allocation**:
-  * **All Devs**: Rigorous testing. Upload invalid files, ask weird questions, reload pages midway. Squash all critical edge-case crashes.
-  * **Dev 1 & 3**: Add response caching for identical chat questions. Optimize prompt size to decrease LLM latency below 10 seconds.
-  * **Dev 2 & 4**: Implement "Pre-loaded Demo" buttons on the homepage. If clicked, the system bypasses file upload and loads a pre-parsed session immediately.
+  * **All Devs**: Rigorous testing. Mock worker disconnects, test large questions, and verify gVisor-based sandbox safety for telemetry parsing.
+  * **Dev 1**: Implement execution constraints (maximum 5 replans) in LangGraph. Add response caching for identical chat questions.
+  * **Dev 2**: Polish Next.js pages with Vanilla CSS to ensure visual excellence, premium animations, and a cohesive terminal design.
+  * **Dev 3**: Implement a Neo4j causal query helper (wrapping raw Cypher querying behind safety checks). Seed Neo4j with robot-12 metadata and incident history on startup.
+  * **Dev 4**: Implement the "Pre-loaded Demo" buttons on the UI homepage to load pre-parsed incident databases immediately.
 
 ---
 
 ### Day 7: Demo Video, Pitch Deck & Presentation Prep
 * **Daily Goal**: Package the project and create presentation assets.
-* **🔴 Non-Negotiable Outcome**: High-quality 3-minute video screencast, completed slide deck, and code repository clean-up.
+* **🔴 Non-Negotiable Outcome**: High-quality 3-minute video screencast, completed pitch deck, and clean code repository.
 * **Task Allocation**:
-  * **Dev 1 & 3**: Clean up the codebase, add docstrings, verify `.gitignore` doesn't leak secrets/API keys.
-  * **Dev 2**: Verify UI visual consistency. Ensure there are no broken links, spelling errors, or visual glitches.
-  * **Dev 4 (Lead)**: Record and edit the 3-minute demo video. Structure and write the Pitch Deck slides (Problem, Solution, Architecture, Market/Vision, Team).
-  * **All Devs**: Conduct a mock QA session, verify README quick-start works on a clean system, and submit the hackathon entry.
+  * **Dev 1 & 3**: Clean up the codebase, add docstrings, and verify `.gitignore` doesn't leak secrets or API keys.
+  * **Dev 2**: Review UI visual consistency (responsive layouts, typography alignment, and clear hover interactions).
+  * **Dev 4 (Lead)**: Record and edit the 3-minute demo video. Structure and write the Pitch Deck slides (Problem, Solution, Agent Architecture, Fleet KG, Team).
+  * **All Devs**: Run a mock Q&A session and submit the hackathon entry.
 
 ---
 
 ## 🛡️ Risk Buffering Strategy
 
-1. **Fallback for Missing ROS Bags (Day 4 Buffer)**: If creating custom MCAP files takes too long, we will use plain text CSV log lists mimicking standard rosbag terminal output to test the parser.
-2. **Offline Resilience**: The RAG database is local/embedded (Milvus Lite + SQLite). Only LLM calls hit the internet, minimizing dependence on slow conference Wi-Fi.
+1. **MCP Port Overlap (Day 5 Buffer)**: If managing 5 network services becomes problematic, we will fall back to using a single multi-tool MCP server for all 5 tools as a single process under port `5001`.
+2. **Offline Resilience**: The database layer uses local containerized Neo4j and SQLite files. Only LLM API calls hit the internet, preserving performance during the demo.
 3. **Strict Friday Freeze**: No new features are allowed to be added after Thursday midnight (End of Day 5). Days 6 and 7 are reserved strictly for stability, design polish, and storytelling.
