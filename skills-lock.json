@@ -1,11 +1,47 @@
 {
   "version": 1,
   "skills": {
+    "SQLite Database Expert": {
+      "source": "martinholovsky/claude-skills-generator",
+      "sourceType": "github",
+      "skillPath": "skills/sqlite/SKILL.md",
+      "computedHash": "0e75baa1c3159dba4c6db79330634327039c9813410256b73357dcbb0ed9d0ea"
+    },
+    "deep-agents-core": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/deep-agents-core/SKILL.md",
+      "computedHash": "78899a8217572be9156b0c03f280fea7c250ce29e89a87fc18499766ec67159c"
+    },
+    "deep-agents-memory": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/deep-agents-memory/SKILL.md",
+      "computedHash": "54e4fd1e876f5e13bee1b52812a84befe00e8336c19d32766557fcb84c5ecf49"
+    },
+    "deep-agents-orchestration": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/deep-agents-orchestration/SKILL.md",
+      "computedHash": "5b039d2c10ef3bd6f6044c70c123060860dc1e1a49c0dc5cc12dde7cd67a3b75"
+    },
     "deploy-to-vercel": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/deploy-to-vercel/SKILL.md",
       "computedHash": "03e0eaaa9bf13ba1e7ffa387f5893de6f324c0868c627001f179395a8feaa7c9"
+    },
+    "docker-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-expert/SKILL.md",
+      "computedHash": "0974b5f64fcd284c1bd662810e2388f7beb9be6784c597de4d0ad4213ccbd6af"
+    },
+    "docker-patterns": {
+      "source": "affaan-m/everything-claude-code",
+      "sourceType": "github",
+      "skillPath": "skills/docker-patterns/SKILL.md",
+      "computedHash": "2750c564c7b600fbbfd44de2c693955c677c18c872d06019fa896ab770c69ed9"
     },
     "docker-ros2-development": {
       "source": "arpitg1304/robotics-agent-skills",
@@ -13,17 +49,95 @@
       "skillPath": "skills/docker-ros2-development/SKILL.md",
       "computedHash": "fc1cf6ef411157b5db70e17bf69a7e83881feb2510159085de23f56f9e65ae5b"
     },
+    "electron-best-practices": {
+      "source": "jwynia/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/tech/development/tooling/electron-best-practices/SKILL.md",
+      "computedHash": "e692cde3f6d9c4695a5c3d12ecddd69f407def5fdc5611ea8ee7b14215f7ab5a"
+    },
     "electron-development": {
       "source": "mindrally/skills",
       "sourceType": "github",
       "skillPath": "electron-development/SKILL.md",
       "computedHash": "d0a77ba434d018e2e1b972ac67757382ff94022dacaaed6cc4eb84daa7f1cd99"
     },
+    "fastapi": {
+      "source": "fastapi/fastapi",
+      "sourceType": "github",
+      "skillPath": "fastapi/.agents/skills/fastapi/SKILL.md",
+      "computedHash": "ee23d5285caf055cf164ff45dd34888d381143564666baacab8aa786f22e413a"
+    },
     "fastapi-python": {
       "source": "mindrally/skills",
       "sourceType": "github",
       "skillPath": "fastapi-python/SKILL.md",
       "computedHash": "1d7346210a6690d2faeb089f074c0dc20a7056c2c83ac1062a11c1b73158be72"
+    },
+    "framework-selection": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/framework-selection/SKILL.md",
+      "computedHash": "4077205bed91c048ba47f0db1bd66930bdbdd04e5195dc3d5b265272c5059cd1"
+    },
+    "langchain-dependencies": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langchain-dependencies/SKILL.md",
+      "computedHash": "d11337493fa4828c12d2d1793fbdf3bb0d5ae67763a03e98b0f1aa3d0ff6825b"
+    },
+    "langchain-fundamentals": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langchain-fundamentals/SKILL.md",
+      "computedHash": "5a1ded1b185ed95aab2b795f6134ce1ea9c19dddc5d5c8f291b31c0db4f0e379"
+    },
+    "langchain-middleware": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langchain-middleware/SKILL.md",
+      "computedHash": "f8b6897ba1f027d56ff9fffa72d4d27d8e048232fe1e1c13e219df98969d55b0"
+    },
+    "langchain-rag": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langchain-rag/SKILL.md",
+      "computedHash": "53fa807b2094c4ee9136ff23a9330321c1a22959870e4a1f7bd53b753b623f94"
+    },
+    "langgraph": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/langgraph/SKILL.md",
+      "computedHash": "4a2ab8a8444cae1ef3e714c37725e693e64c9cdad63c2fc72406e3f6cb5b7c5f"
+    },
+    "langgraph-cli": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langgraph-cli/SKILL.md",
+      "computedHash": "dec48033a9a80c8d8826d0d4303dfc339a0a9145f3266035663104357b2d9c8f"
+    },
+    "langgraph-fundamentals": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langgraph-fundamentals/SKILL.md",
+      "computedHash": "790dd42d79190a6db6a7a82ac9b03fa371402a47d91ff88c1e2731b1ceff1d29"
+    },
+    "langgraph-human-in-the-loop": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langgraph-human-in-the-loop/SKILL.md",
+      "computedHash": "283821ddcbdefb404d5e9c95149364c0962857a6f1e90db33ee5a0062500a88a"
+    },
+    "langgraph-persistence": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/langgraph-persistence/SKILL.md",
+      "computedHash": "0e14611b0310a7a30e9977ba99b00a11b7ea63ebdd7b0c490d03040349ead0ed"
+    },
+    "managed-deep-agents": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/managed-deep-agents/SKILL.md",
+      "computedHash": "e034c44bf34dd2cef494fb223a18ff0d65836ea98e61a8d6b16d1a1306535ad6"
     },
     "neo4j-agent-memory-skill": {
       "source": "neo4j-contrib/neo4j-skills",
@@ -235,6 +349,18 @@
       "skillPath": "skills/ros2-web-integration/SKILL.md",
       "computedHash": "2b9c1965f2a16429e130bcf4a2e33af85cdc5ab84104c6334ffca1975be0c62c"
     },
+    "sqlite-expert": {
+      "source": "rightnow-ai/openfang",
+      "sourceType": "github",
+      "skillPath": "crates/openfang-skills/bundled/sqlite-expert/SKILL.md",
+      "computedHash": "f63004999d019b0a150309ea1a20661ab3aa33267e48e26f0dfafa6f800cc122"
+    },
+    "swarm": {
+      "source": "langchain-ai/langchain-skills",
+      "sourceType": "github",
+      "skillPath": "config/skills/swarm/SKILL.md",
+      "computedHash": "29122a93989b832c29a7030460871ec64b0541deab4feacffbb39d9f0bc1c70e"
+    },
     "vercel-cli-with-tokens": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
@@ -276,6 +402,18 @@
       "sourceType": "github",
       "skillPath": "skills/web-design-guidelines/SKILL.md",
       "computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
+    },
+    "zod-validation-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/zod-validation-expert/SKILL.md",
+      "computedHash": "d973af5f5bb353b6793ba2516bc11f17d6df6e505e787e774611a05e182db16a"
+    },
+    "zustand-store-ts": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/zustand-store-ts/SKILL.md",
+      "computedHash": "b66ed7ed7978bae5de8d2a5552fbf11c317de347e39bc1cea9f9a817d2a8179d"
     }
   }
 }
