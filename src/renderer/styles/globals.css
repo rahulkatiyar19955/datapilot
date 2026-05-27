@@ -43,6 +43,11 @@
   --color-accent-badge-text: oklch(0.92 0.10 235);
   --color-accent-hover: oklch(0.78 0.18 235);
 
+  /* Map / KGraph backgrounds and grid lines */
+  --color-map-bg: oklch(0.14 0.010 240);
+  --color-grid: oklch(0.24 0.01 240 / 0.6);
+  --color-grid-2: oklch(0.28 0.012 240 / 0.8);
+
   /* Elevation Shadows */
   --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 0.3);
   --shadow-md: 0 4px 12px -2px oklch(0 0 0 / 0.4), 0 2px 4px -1px oklch(0 0 0 / 0.3);
@@ -92,6 +97,11 @@
 
   --color-accent-badge-text: var(--color-accent);
   --color-accent-hover: oklch(0.42 0.22 250);
+
+  /* Map / KGraph backgrounds and grid lines */
+  --color-map-bg: oklch(0.96 0.012 240);
+  --color-grid: oklch(0.82 0.015 240 / 0.5);
+  --color-grid-2: oklch(0.78 0.018 240 / 0.7);
 
   /* Light Elevation Shadows */
   --shadow-sm: 0 1px 2px 0 oklch(0.22 0.02 240 / 0.05);
@@ -700,6 +710,21 @@ body,
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Section heading (dim uppercase label used in all panels) ───────── */
+
+.section-h {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
+}
+
+/* ── Dim utility ─────────────────────────────────────────────────── */
+.dim {
+  color: var(--color-text-3);
 }
 
 /* Custom Scrollbars */

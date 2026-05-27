@@ -104,6 +104,8 @@ uv run uvicorn app.main:app --reload
 
 > **Note:** Docker is orchestrated by the Electron **main process** via `dockerode`. `docker compose` is only for validating YAML or debugging containers. The end‑user must never manually start backend services.
 
+> **Remote Debugging:** In development mode (`pnpm dev`), Electron is configured to listen on remote debugging port `8315`. This allows external browser tools and AI agents to connect to the Chrome DevTools Protocol at `http://localhost:8315` to capture screenshots and interact with the application screen.
+
 ---
 
 ## Repo Layout
@@ -143,6 +145,10 @@ scripts/      # local dev and validation helpers
 - **Never** expose raw `ipcRenderer`, `fs`, `child_process`, or `require` to the renderer.
 - All cross‑process contracts live in `src/shared/ipc.ts`. Renderer, preload, and main **must** import the same channel and payload types.
 - Expose only specific, typed methods through `contextBridge.exposeInMainWorld('datapilot', ...)`.
+
+### Remote Debugging (AI Agent Screen Visibility)
+- **Always** enable Chrome DevTools remote debugging on port `8315` in development mode.
+- In `src/main/index.ts`, programmatically append the `remote-debugging-port` switch to port `8315` if `process.env.ELECTRON_RENDERER_URL` is defined. This allows AI agents to inspect and interact with the application screen.
 
 ### IPC Validation
 - **Always** validate IPC payloads in `ipcMain.handle` handlers. Use Zod or explicit TypeScript guards.
