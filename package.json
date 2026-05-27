@@ -14,6 +14,8 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "lint": "echo \"lint not yet configured\" && exit 0",
     "test": "echo \"tests not yet configured\" && exit 0",
+    "eval": "cd backend && uv run pytest tests/eval -v -m eval",
+    "eval:live": "cd backend && LIVE_LLM=1 uv run pytest tests/eval -v -m 'eval or live'",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\"",
     "package": "electron-vite build && electron-builder",
     "package:mac": "electron-vite build && electron-builder --mac",

@@ -1,0 +1,65 @@
+# Phase 4.5 — Golden eval set.
+#
+# Each case: a (bag, question) pair plus expected behavior. The runner ingests
+# the bag (mocked Neo4j seeded with canonical log_ids), invokes the supervisor
+# graph end-to-end, and asserts the case's `expect:` block.
+#
+# When `LIVE_LLM=1` is set, the same cases run against the configured real
+# provider (Anthropic preferred), with widened latency tolerance and the
+# determinism check skipped.
+
+- id: lidar_why
+  bag: lidar_failure.mcap
+  question: "Why did navigation abort?"
+  expect:
+    specialists_invoked: [RootCauseAnalyst, AnomalyDetector]
+    first_specialist: RootCauseAnalyst
+    causal_chain_min_hops: 3
+    citations_must_include_log_ids: [l_5, l_8]   # dropout → planner abort
+    confidence_min: 0.7
+    e2e_latency_max_s: 30
+
+- id: lidar_what_happened
+  bag: lidar_failure.mcap
+  question: "What happened around t=66s?"
+  expect:
+    specialists_invoked: [RootCauseAnalyst]
+    first_specialist: RootCauseAnalyst
+    confidence_min: 0.5
+    e2e_latency_max_s: 30
+
+- id: nav_drift_hw_sw
+  bag: nav_drift_failure.mcap
+  question: "Is this drift a hardware or software issue?"
+  expect:
+    specialists_invoked: [RootCauseAnalyst]
+    first_specialist: RootCauseAnalyst
+    confidence_min: 0.4
+    e2e_latency_max_s: 30
+
+- id: nav_drift_anomalies
+  bag: nav_drift_failure.mcap
+  question: "Spot anomalies in /odom during the failure window"
+  expect:
+    specialists_invoked: [AnomalyDetector]
+    first_specialist: AnomalyDetector
+    confidence_min: 0.5
+    e2e_latency_max_s: 30
+
+- id: controller_narrate
+  bag: controller_abort.mcap
+  question: "Step me through what happened during the controller abort"
+  expect:
+    specialists_invoked: [ReplayNarrator]
+    first_specialist: ReplayNarrator
+    confidence_min: 0.4
+    e2e_latency_max_s: 30
+
+- id: controller_why
+  bag: controller_abort.mcap
+  question: "Why did the controller abort?"
+  expect:
+    specialists_invoked: [RootCauseAnalyst]
+    first_specialist: RootCauseAnalyst
+    confidence_min: 0.5
+    e2e_latency_max_s: 30

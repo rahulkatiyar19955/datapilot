@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db_sqlite import init_db
 from app.api.sessions import router as sessions_router
 from app.api.chat import router as chat_router
+from app.api.mcp import router as mcp_router
 from app.services.neo4j_client import neo4j_client
 
 
@@ -28,6 +29,13 @@ async def lifespan(_app: FastAPI):
         neo4j_client.close()
     except Exception:
         # Best-effort — don't block process exit on teardown errors.
+        pass
+    # Phase 5: tear down any persistent MCP worker subprocesses we spawned via
+    # the stdio transport. Safe to call even when no workers were launched.
+    try:
+        from app.agent.mcp_stdio import worker_pool
+        worker_pool.shutdown()
+    except Exception:
         pass
 
 
@@ -50,6 +58,7 @@ app.add_middleware(
 # Register routers
 app.include_router(sessions_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(mcp_router, prefix="/api")
 
 
 @app.get("/health")
