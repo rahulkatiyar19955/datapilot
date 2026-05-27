@@ -38,9 +38,15 @@ async def replan_node(state: GraphState, *, router: LLMRouter) -> dict[str, Any]
 
     done_plan = state.get("plan", [])
     outputs = state.get("specialist_outputs", {})
+    def _obs_line(step: dict) -> str:
+        out = outputs.get(step["specialist"]) or {}
+        line = f"- {step['specialist']}: confidence={out.get('confidence', 'N/A')}"
+        if out.get("error"):
+            line += f", error={out['error']}"
+        return line
+
     observations_summary = "\n".join(
-        f"- {step['specialist']}: confidence={outputs.get(step['specialist'], {}).get('confidence', 'N/A')}"
-        for step in done_plan if step.get("done")
+        _obs_line(step) for step in done_plan if step.get("done")
     )
 
     user_msg = (

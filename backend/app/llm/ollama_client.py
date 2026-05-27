@@ -47,12 +47,19 @@ class OllamaClient:
     ) -> CompletionResponse | AsyncIterator[CompletionChunk]:
         ollama_messages = [{"role": "system", "content": system}]
         for m in messages:
-            if m["role"] == "system":
+            role = m["role"]
+            if role == "system":
                 continue
-            ollama_messages.append({
-                "role": m["role"] if m["role"] != "tool" else "tool",
-                "content": m.get("content", ""),
-            })
+            msg_dict: dict[str, Any] = {"role": role, "content": m.get("content", "")}
+            if role == "assistant" and m.get("tool_calls"):
+                msg_dict["tool_calls"] = [
+                    {
+                        "type": "function",
+                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
+                    }
+                    for tc in m["tool_calls"]
+                ]
+            ollama_messages.append(msg_dict)
 
         body: dict[str, Any] = {
             "model": self.model_id,

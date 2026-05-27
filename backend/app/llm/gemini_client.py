@@ -34,24 +34,26 @@ def _to_gemini_contents(messages: list[Message]) -> list[dict[str, Any]]:
         # Gemini uses 'user' and 'model' for assistant
         gem_role = "model" if role == "assistant" else "user"
         if role == "assistant" and m.get("tool_calls"):
-            parts = []
+            parts: list[dict[str, Any]] = []
             if m.get("content"):
                 parts.append({"text": m["content"]})
             for tc in m["tool_calls"]:
                 parts.append({"function_call": {"name": tc["name"], "args": tc["arguments"]}})
-            contents.append({"role": gem_role, "parts": parts})
         elif role == "tool":
-            contents.append({
-                "role": "user",
-                "parts": [{
-                    "function_response": {
-                        "name": m.get("name", "tool"),
-                        "response": {"content": m.get("content", "")},
-                    }
-                }],
-            })
+            parts = [{
+                "function_response": {
+                    "name": m.get("name", "tool"),
+                    "response": {"content": m.get("content", "")},
+                }
+            }]
         else:
-            contents.append({"role": gem_role, "parts": [{"text": m.get("content", "")}]})
+            parts = [{"text": m.get("content", "")}]
+
+        # Gemini rejects consecutive turns with the same role — merge parts instead.
+        if contents and contents[-1]["role"] == gem_role:
+            contents[-1]["parts"].extend(parts)
+        else:
+            contents.append({"role": gem_role, "parts": parts})
     return contents
 
 

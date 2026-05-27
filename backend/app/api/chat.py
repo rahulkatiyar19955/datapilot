@@ -19,6 +19,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import ExitStack
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -81,82 +82,87 @@ async def chat(
     async def event_stream() -> AsyncIterator[dict[str, str]]:
         turn_started = time.perf_counter()
         router_instance = get_router()
-        checkpointer = get_checkpointer()
-        graph = build_graph(router_instance, checkpointer)
 
-        state = initial_state(
-            session_id=session_id,
-            user_message=payload.message,
-            transcript=transcript,
-            session_summary=session_summary,
-        )
-        config = {"configurable": {"thread_id": session_id}}
+        # get_checkpointer() returns a SqliteSaver context manager — enter it so
+        # the underlying SQLite connection is open for the lifetime of this stream.
+        with ExitStack() as stack:
+            checkpointer_cm = get_checkpointer()
+            checkpointer = stack.enter_context(checkpointer_cm) if checkpointer_cm is not None else None
+            graph = build_graph(router_instance, checkpointer)
 
-        final_envelope: dict[str, Any] | None = None
-        emitted_plan = False
-        last_plan_idx = 0
+            state = initial_state(
+                session_id=session_id,
+                user_message=payload.message,
+                transcript=transcript,
+                session_summary=session_summary,
+            )
+            config = {"configurable": {"thread_id": session_id}}
 
-        try:
-            async for update in graph.astream(state, config=config, stream_mode="updates"):
-                # `update` is {node_name: state_patch}
-                for node_name, patch in update.items():
-                    if not isinstance(patch, dict):
-                        continue
-                    if node_name == "supervisor" and "plan" in patch and not emitted_plan:
-                        plan = patch["plan"]
-                        yield _format_sse("plan", {"plan": plan})
-                        emitted_plan = True
-                    elif node_name == "dispatcher":
-                        # plan_idx advanced — the step at last_plan_idx just finished.
-                        new_idx = int(patch.get("plan_idx", last_plan_idx))
-                        plan = patch.get("plan") or []
-                        # Emit step-done for the step that just completed.
-                        for i in range(last_plan_idx, new_idx):
-                            if i < len(plan):
-                                step = plan[i]
-                                spec_name = step["specialist"]
-                                spec_out = (patch.get("specialist_outputs") or {}).get(spec_name) or {}
-                                yield _format_sse("step-done", {
-                                    "idx": i,
-                                    "specialist": spec_name,
-                                    "confidence": spec_out.get("confidence", 1.0),
-                                    "output_summary": _summary_for(spec_out),
+            final_envelope: dict[str, Any] | None = None
+            emitted_plan = False
+            last_plan_idx = 0
+
+            try:
+                async for update in graph.astream(state, config=config, stream_mode="updates"):
+                    # `update` is {node_name: state_patch}
+                    for node_name, patch in update.items():
+                        if not isinstance(patch, dict):
+                            continue
+                        if node_name == "supervisor" and "plan" in patch and not emitted_plan:
+                            plan = patch["plan"]
+                            yield _format_sse("plan", {"plan": plan})
+                            emitted_plan = True
+                        elif node_name == "dispatcher":
+                            # plan_idx advanced — the step at last_plan_idx just finished.
+                            new_idx = int(patch.get("plan_idx", last_plan_idx))
+                            plan = patch.get("plan") or []
+                            # Emit step-done for the step that just completed.
+                            for i in range(last_plan_idx, new_idx):
+                                if i < len(plan):
+                                    step = plan[i]
+                                    spec_name = step["specialist"]
+                                    spec_out = (patch.get("specialist_outputs") or {}).get(spec_name) or {}
+                                    yield _format_sse("step-done", {
+                                        "idx": i,
+                                        "specialist": spec_name,
+                                        "confidence": spec_out.get("confidence", 1.0),
+                                        "output_summary": _summary_for(spec_out),
+                                    })
+                            # Also emit step-start for the next pending step.
+                            if new_idx < len(plan):
+                                next_step = plan[new_idx]
+                                yield _format_sse("step-start", {
+                                    "idx": new_idx,
+                                    "specialist": next_step["specialist"],
                                 })
-                        # Also emit step-start for the next pending step.
-                        if new_idx < len(plan):
-                            next_step = plan[new_idx]
-                            yield _format_sse("step-start", {
-                                "idx": new_idx,
-                                "specialist": next_step["specialist"],
+                            last_plan_idx = new_idx
+                        elif node_name == "replan":
+                            yield _format_sse("replan", {
+                                "reason": patch.get("audit_trail", [{}])[-1].get("result_summary", "low_confidence"),
+                                "new_plan": patch.get("plan") or [],
                             })
-                        last_plan_idx = new_idx
-                    elif node_name == "replan":
-                        yield _format_sse("replan", {
-                            "reason": patch.get("audit_trail", [{}])[-1].get("result_summary", "low_confidence"),
-                            "new_plan": patch.get("plan") or [],
-                        })
-                    elif node_name == "composer" and "final" in patch:
-                        final_envelope = patch["final"]
-        except Exception as exc:
-            logger.exception("chat: graph run failed for session %s", session_id)
-            yield _format_sse("error", {
-                "code": "graph_error",
-                "message": str(exc),
-                "recoverable": False,
-            })
-            return
+                        elif node_name == "composer" and "final" in patch:
+                            final_envelope = patch["final"]
+            except Exception as exc:
+                logger.exception("chat: graph run failed for session %s", session_id)
+                yield _format_sse("error", {
+                    "code": "graph_error",
+                    "message": str(exc),
+                    "recoverable": False,
+                })
+                return
 
-        if final_envelope is None:
-            yield _format_sse("error", {
-                "code": "no_final",
-                "message": "Graph finished without composing a final envelope.",
-                "recoverable": True,
-            })
-            return
+            if final_envelope is None:
+                yield _format_sse("error", {
+                    "code": "no_final",
+                    "message": "Graph finished without composing a final envelope.",
+                    "recoverable": True,
+                })
+                return
 
-        yield _format_sse("final", final_envelope)
+            yield _format_sse("final", final_envelope)
 
-        # Persist the turn to SQLite (best-effort; failure here doesn't break the stream).
+        # Persist outside the ExitStack so the checkpointer is already closed cleanly.
         try:
             await _persist_turn(db, session_id, payload.message, final_envelope, turn_started)
         except Exception:

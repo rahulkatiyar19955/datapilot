@@ -131,9 +131,11 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
     if not expand:
         return {"ok": True, "result": hits}
 
-    # 2. Expand ±5s neighbors. One Cypher call per hit keeps it simple; the
-    # results are small (≤k items, ≤20 neighbors each) so this is fine.
+    # 2. Expand ±5s neighbors — single batch query via UNWIND to avoid N+1 round-trips.
+    from app.services.causal_rules import log_time_to_seconds
+
     expand_cypher = """
+    UNWIND $hits AS hit
     MATCH (s:Session {id: $session_id})-[:HAS_LOG]->(l:Log)
     WHERE abs(
         CASE
@@ -141,25 +143,29 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
           THEN toFloat(split(l.ts,':')[0])*3600 + toFloat(split(l.ts,':')[1])*60 + toFloat(split(l.ts,':')[2])
           ELSE toFloat(l.ts)
         END -
-        $center
+        hit.center
     ) <= 5.0
-    AND l.id <> $center_log_id
-    RETURN l.id AS log_id, l.ts AS ts, l.severity AS severity, l.node AS node, l.msg AS msg
+    AND l.id <> hit.log_id
+    WITH hit.log_id AS center_log_id, l
     ORDER BY l.ts
-    LIMIT 20
+    WITH center_log_id,
+         collect({log_id: l.id, ts: l.ts, severity: l.severity, node: l.node, msg: l.msg})[..20] AS neighbors
+    RETURN center_log_id, neighbors
     """
-    from app.services.causal_rules import log_time_to_seconds
 
-    expanded = []
-    for h in hits:
-        center = log_time_to_seconds(h.get("ts", "0"))
+    hits_input = [
+        {"log_id": h["log_id"], "center": log_time_to_seconds(h.get("ts", "0"))}
+        for h in hits
+    ]
+    neighbors_map: dict[str, list] = {}
+    if hits_input:
         try:
-            neighbors = neo4j_client.run_query(
+            rows = neo4j_client.run_query(
                 expand_cypher,
-                {"session_id": session_id, "center": center, "center_log_id": h["log_id"]},
+                {"session_id": session_id, "hits": hits_input},
             )
+            neighbors_map = {r["center_log_id"]: r["neighbors"] for r in rows}
         except Exception:
-            neighbors = []
-        expanded.append({**h, "neighbors": neighbors})
+            logger.exception("neo4j neighbor expansion failed")
 
-    return {"ok": True, "result": expanded}
+    return {"ok": True, "result": [{**h, "neighbors": neighbors_map.get(h["log_id"], [])} for h in hits]}

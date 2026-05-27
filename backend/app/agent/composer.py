@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.agent.budget import estimate_cost_usd, total_tokens_in_audit
+from app.agent.budget import estimate_cost_usd
 from app.agent.state import (
     AuditEvent,
     CausalStep,
@@ -153,7 +153,7 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
     # 4. Assemble final envelope.
     full_audit = list(state.get("audit_trail") or []) + audit
     usage = UsageMetrics(
-        tokens_in=total_tokens_in_audit(full_audit),
+        tokens_in=sum(int(e.get("tokens_in", 0) or 0) for e in full_audit),
         tokens_out=sum(int(e.get("tokens_out", 0) or 0) for e in full_audit),
         est_cost_usd=estimate_cost_usd(full_audit),
     )
