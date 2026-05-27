@@ -15,7 +15,7 @@ from app.schemas import (
 from app.services.parser import ingestion_parser
 from app.services.embeddings import embedding_service
 from app.services.neo4j_client import neo4j_client
-from app.services.causal_rules import causal_rules_evaluator
+from app.services.causal_rules import causal_rules_evaluator, log_time_to_seconds
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -202,21 +202,26 @@ async def get_logs(
         try:
             dim = embedding_service.get_embedding_dimension()
             query_vector = embedding_service.embed_texts([q])[0]
-            
-            # Neo4j vector search query
+
+            # Pagination: pull `limit + offset` from the vector index, then
+            # apply SKIP/LIMIT to honor the caller's offset. The vector index
+            # itself has no concept of offset.
             cypher = """
             MATCH (s:Session {id: $session_id})
-            CALL db.index.vector.queryNodes('log_embedding_idx', $limit, $query_vector)
+            CALL db.index.vector.queryNodes('log_embedding_idx', $vector_limit, $query_vector)
             YIELD node, score
             MATCH (s)-[:HAS_LOG]->(node)
             WHERE ($severity IS NULL OR node.severity = $severity)
             RETURN node.ts as t, node.node as node, node.severity as sev, node.msg as text, node.id as id
+            SKIP $offset LIMIT $limit
             """
             params = {
                 "session_id": session_id,
                 "query_vector": query_vector,
                 "severity": severity.upper() if severity else None,
-                "limit": limit
+                "vector_limit": limit + offset,
+                "offset": offset,
+                "limit": limit,
             }
             results = neo4j_client.run_query(cypher, params)
             return [LogItem(**r) for r in results]
@@ -289,8 +294,10 @@ async def get_causal_chain(
     RETURN DISTINCT n.id as id, n.ts as t, n.node as node, n.severity as sev, n.msg as text
     """
     results = neo4j_client.run_query(cypher, {"session_id": session_id, "event_id": event_id})
-    # Maintain time ordering
-    results.sort(key=lambda x: x["t"])
+    # Sort by numeric seconds, not by string — `"10:00:00"` would otherwise
+    # sort BEFORE `"2:00:00"` for unpadded hours, and beyond 99h the lexical
+    # order silently diverges from chronological order.
+    results.sort(key=lambda x: log_time_to_seconds(x.get("t", "0")))
     return [LogItem(**r) for r in results]
 
 @router.get("/{session_id}/replay", response_model=ReplayResponse)

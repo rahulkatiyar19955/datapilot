@@ -36,27 +36,30 @@ class Neo4jClient:
                 "FOR (n:Log) ON EACH [n.msg]"
             )
 
-            # Drop old vector index if dimension mismatch
-            # To do that, we check existing indexes
+            # Only drop+recreate the vector index when the embedding dimension
+            # actually changed (e.g., user switched OpenAI ↔ MiniLM). Vector-index
+            # rebuilds are expensive — doing them on every ingestion run kills
+            # ingestion latency on large sessions.
             res = session.run("SHOW INDEXES")
-            existing_dim = None
-            vector_index_exists = False
+            existing_dim: int | None = None
             for record in res:
-                if record["name"] == "log_embedding_idx":
-                    vector_index_exists = True
-                    # Check options
-                    properties = record.get("properties", [])
-                    # Neo4j 5 stores index info in specific properties. Let's see if we need to drop
-                    # It is safer to just drop and recreate it to be sure, or check the dimension.
-                    break
-            
-            if vector_index_exists:
+                if record["name"] != "log_embedding_idx":
+                    continue
+                options = record.get("options") or {}
+                index_config = options.get("indexConfig") if isinstance(options, dict) else None
+                if isinstance(index_config, dict):
+                    dim = index_config.get("vector.dimensions")
+                    if isinstance(dim, int):
+                        existing_dim = dim
+                break
+
+            if existing_dim is not None and existing_dim != embedding_dim:
                 try:
                     session.run("DROP INDEX log_embedding_idx")
                 except Exception:
                     pass
-            
-            # Create vector index
+
+            # Create vector index (no-op when an existing one matches dimension)
             vector_query = f"""
             CREATE VECTOR INDEX log_embedding_idx IF NOT EXISTS
             FOR (n:Log)
@@ -84,16 +87,23 @@ class Neo4jClient:
             session.run(query, {"session_id": session_id})
             
     def write_logs(self, session_id: str, logs: list[dict]):
-        # Write batch of logs and link to Session
+        """
+        Write a batch of logs and link them to the Session.
+
+        Parser dicts use the mock-aligned field names `{id, t, sev, text, …}`
+        (see `mock_design/data.jsx`); the graph schema stores them as the more
+        verbose `{ts, severity, msg}`. Map the names here so the Cypher writes
+        actual values instead of nulls.
+        """
         query = """
         MATCH (s:Session {id: $session_id})
         UNWIND $logs_list AS log_data
         CREATE (l:Log {
             id: log_data.id,
-            ts: log_data.ts,
-            severity: log_data.severity,
+            ts: log_data.t,
+            severity: log_data.sev,
             node: log_data.node,
-            msg: log_data.msg,
+            msg: log_data.text,
             topic: log_data.topic,
             type: log_data.type,
             embedding: log_data.embedding

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db_sqlite import init_db
 from app.api.sessions import router as sessions_router
+from app.services.neo4j_client import neo4j_client
 
 
 @asynccontextmanager
@@ -20,8 +21,13 @@ async def lifespan(_app: FastAPI):
     # Startup: initialize local SQLite schema (create-if-not-exists).
     await init_db()
     yield
-    # Shutdown: nothing to release; Neo4j driver lifetimes are per-call,
-    # SQLite engine is cleaned by the async runtime.
+    # Shutdown: close the shared Neo4j driver so its connection pool
+    # releases sockets back to the OS rather than relying on GC.
+    try:
+        neo4j_client.close()
+    except Exception:
+        # Best-effort — don't block process exit on teardown errors.
+        pass
 
 
 app = FastAPI(

@@ -33,8 +33,14 @@ class EmbeddingService:
     def embed_texts(self, texts: List[str], batch_size: int = 128) -> List[List[float]]:
         """
         Embed `texts` and return a parallel list of vectors. Batches internally
-        so callers can pass an arbitrarily long list. If OpenAI fails mid-run,
-        falls back to the local model for the *remainder* of this call.
+        so callers can pass an arbitrarily long list.
+
+        Provider selection is **sticky for the run**: if an OpenAI client is
+        configured, errors propagate to the caller rather than silently falling
+        back to the local MiniLM model. The two models produce vectors of
+        different dimensions (1536 vs 384), and the Neo4j vector index is
+        created from `get_embedding_dimension()` at ingestion start — a
+        mid-run fallback would corrupt the graph by mixing dimensions.
         """
         if not texts:
             return []
@@ -42,19 +48,14 @@ class EmbeddingService:
         # Prefer OpenAI when configured; batch through it.
         if self.openai_client:
             out: List[List[float]] = []
-            try:
-                for i in range(0, len(texts), batch_size):
-                    chunk = texts[i:i + batch_size]
-                    response = self.openai_client.embeddings.create(
-                        input=chunk,
-                        model="text-embedding-3-small",
-                    )
-                    out.extend(data.embedding for data in response.data)
-                return out
-            except Exception as e:
-                print(f"OpenAI embedding call failed: {e}. Falling back to local SentenceTransformer.")
-                # Recover by embedding the *whole* list via the local model so
-                # the returned shape stays consistent.
+            for i in range(0, len(texts), batch_size):
+                chunk = texts[i:i + batch_size]
+                response = self.openai_client.embeddings.create(
+                    input=chunk,
+                    model="text-embedding-3-small",
+                )
+                out.extend(data.embedding for data in response.data)
+            return out
 
         # Local model (SentenceTransformer) handles batching internally.
         embeddings = self.local_model.encode(texts, batch_size=batch_size)
