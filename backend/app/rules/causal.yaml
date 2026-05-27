@@ -1,0 +1,97 @@
+rules:
+  - id: sensor_dropout_inflates_costmap
+    cause:
+      log_pattern: "(?i)no data for \\d+ms"
+      node_glob: "/sensors*"
+      severity: ["ERROR"]
+    effect:
+      log_pattern: "(?i)defensive inflation|inflation radius applied"
+      node_glob: "/costmap*"
+    window_ms: 2000
+    confidence: 0.92
+    edge_type: TRIGGERED
+    evidence_required: 1
+
+  - id: costmap_inflation_aborts_planner
+    cause:
+      log_pattern: "(?i)inflation radius applied"
+      node_glob: "/costmap*"
+    effect:
+      log_pattern: "(?i)Planner aborted|no valid path"
+      node_glob: "/move_base*"
+    window_ms: 3000
+    confidence: 0.88
+    edge_type: CAUSED
+    evidence_required: 1
+
+  - id: planner_abort_triggers_ebrake
+    cause:
+      log_pattern: "(?i)Planner aborted"
+      node_glob: "/move_base*"
+    effect:
+      log_pattern: "(?i)emergency brake|velocity command zeroed"
+      node_glob: "/cmd_vel*"
+    window_ms: 500
+    confidence: 0.98
+    edge_type: CAUSED
+    evidence_required: 1
+
+  - id: wheel_slip_causes_odom_drift
+    cause:
+      log_pattern: "(?i)wheel slip"
+      node_glob: "/odom*"
+    effect:
+      log_pattern: "(?i)drift exceeds tolerance"
+      node_glob: "/odom*"
+    window_ms: 15000
+    confidence: 0.90
+    edge_type: CAUSED
+    evidence_required: 1
+
+  - id: odom_drift_triggers_slip_alarm
+    cause:
+      log_pattern: "(?i)drift exceeds tolerance"
+      node_glob: "/odom*"
+    effect:
+      log_pattern: "(?i)Wheel odometry slip detected"
+      node_glob: "/diagnostics*"
+    window_ms: 2000
+    confidence: 0.95
+    edge_type: TRIGGERED
+    evidence_required: 1
+
+  - id: slip_alarm_aborts_navigation
+    cause:
+      log_pattern: "(?i)Wheel odometry slip detected"
+      node_glob: "/diagnostics*"
+    effect:
+      log_pattern: "(?i)Aborting goal"
+      node_glob: "/move_base*"
+    window_ms: 6000
+    confidence: 0.89
+    edge_type: CAUSED
+    evidence_required: 1
+
+  - id: obstacle_block_causes_nav_abort
+    cause:
+      log_pattern: "(?i)obstacle detected"
+      node_glob: "/scan*"
+    effect:
+      log_pattern: "(?i)Aborting goal"
+      node_glob: "/move_base*"
+    window_ms: 5000
+    confidence: 0.94
+    edge_type: CAUSED
+    evidence_required: 1
+
+  - id: nav_abort_triggers_diagnostics_alarm
+    cause:
+      log_pattern: "(?i)Aborting goal"
+      node_glob: "/move_base*"
+    effect:
+      log_pattern: "(?i)Planner failure"
+      node_glob: "/diagnostics*"
+    window_ms: 2000
+    confidence: 0.97
+    edge_type: TRIGGERED
+    evidence_required: 1

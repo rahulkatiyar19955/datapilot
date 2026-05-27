@@ -1,24 +1,37 @@
 """
 DataPilot FastAPI entrypoint.
 
-Phase 0 — exposes only /health. Real session, chat, fleet, MCP, and search
-routers land in Phases 3+.
+Phase 3 — ingestion pipeline + session endpoints. Chat / fleet / MCP / search
+routers land in Phases 4+.
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.db_sqlite import init_db
+from app.api.sessions import router as sessions_router
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Startup: initialize local SQLite schema (create-if-not-exists).
+    await init_db()
+    yield
+    # Shutdown: nothing to release; Neo4j driver lifetimes are per-call,
+    # SQLite engine is cleaned by the async runtime.
+
 
 app = FastAPI(
     title="DataPilot Backend",
     version="0.1.0",
     description="Local-first ROS 2 debugging copilot — FastAPI + LangGraph.",
+    lifespan=lifespan,
 )
 
 # This is a local-first backend that only listens on the user's machine.
-# In production the renderer loads via file:// which sends Origin: null (not a
-# real origin), so an enumerated allow-list cannot match. allow_credentials is
-# False, so wildcard origins are safe.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,11 +40,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register routers
+app.include_router(sessions_router, prefix="/api")
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Liveness probe. The Electron orchestrator polls this on stack boot."""
-    return {"status": "ok", "phase": "0", "service": "datapilot-backend"}
+    return {"status": "ok", "phase": "3", "service": "datapilot-backend"}
 
 
 @app.get("/")
