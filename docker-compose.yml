@@ -69,63 +69,117 @@ services:
       timeout: 5s
       retries: 12
 
+  # ── MCP workers (Phase 5) ──────────────────────────────────────────────
+  # All workers share one build pattern: context is the repo root so the
+  # image can pull in `backend/` (for `app.agent.tools.*`) + `mcp_workers/`
+  # (for `_shared/` helpers + the worker package itself). Each exposes a
+  # tiny HTTP `/health` on a per-worker port that the backend's
+  # `/api/mcp/servers` route polls; the primary MCP transport (stdio) is
+  # consumed by the backend via the `mcp_stdio.WorkerHandle` pool when
+  # `DATAPILOT_MCP_TRANSPORT=stdio` (the production default).
   rosbag-reader:
     build:
-      context: ./mcp_workers/rosbag_reader
+      context: .
+      dockerfile: mcp_workers/rosbag_reader/Dockerfile
     image: datapilot/mcp-rosbag-reader:local
     container_name: datapilot-rosbag-reader
     networks: [datapilot-net]
+    ports:
+      - "9001:9001"
     environment:
       DATAPILOT_HOST_MOUNT: /host
+      ROSBAG_READER_HEALTH_PORT: "9001"
     # `/host` mount injected by the orchestrator at runtime (read-only).
     depends_on:
       backend:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9001/health', timeout=2).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   trajectory-analyzer:
     build:
-      context: ./mcp_workers/trajectory_analyzer
+      context: .
+      dockerfile: mcp_workers/trajectory_analyzer/Dockerfile
     image: datapilot/mcp-trajectory-analyzer:local
     container_name: datapilot-trajectory-analyzer
     networks: [datapilot-net]
+    ports:
+      - "9002:9002"
     environment:
       DATAPILOT_HOST_MOUNT: /host
+      TRAJECTORY_ANALYZER_HEALTH_PORT: "9002"
     depends_on:
       backend:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9002/health', timeout=2).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   planner-failure-inspector:
     build:
-      context: ./mcp_workers/planner_failure_inspector
+      context: .
+      dockerfile: mcp_workers/planner_failure_inspector/Dockerfile
     image: datapilot/mcp-planner-failure-inspector:local
     container_name: datapilot-planner-failure-inspector
     networks: [datapilot-net]
+    ports:
+      - "9003:9003"
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-datapilot-local}
+      PLANNER_FAILURE_INSPECTOR_HEALTH_PORT: "9003"
     depends_on:
       neo4j:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9003/health', timeout=2).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   anomaly-detector:
     build:
-      context: ./mcp_workers/anomaly_detector
+      context: .
+      dockerfile: mcp_workers/anomaly_detector/Dockerfile
     image: datapilot/mcp-anomaly-detector:local
     container_name: datapilot-anomaly-detector
     networks: [datapilot-net]
+    ports:
+      - "9004:9004"
     environment:
       DATAPILOT_HOST_MOUNT: /host
+      ANOMALY_DETECTOR_HEALTH_PORT: "9004"
     depends_on:
       backend:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9004/health', timeout=2).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   report-composer:
     build:
-      context: ./mcp_workers/report_composer
+      context: .
+      dockerfile: mcp_workers/report_composer/Dockerfile
     image: datapilot/mcp-report-composer:local
     container_name: datapilot-report-composer
     networks: [datapilot-net]
+    ports:
+      - "9005:9005"
+    environment:
+      REPORT_COMPOSER_HEALTH_PORT: "9005"
     depends_on:
       backend:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9005/health', timeout=2).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12

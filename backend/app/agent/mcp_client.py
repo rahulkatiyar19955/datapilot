@@ -1,9 +1,16 @@
 """
-In-process MCP-shaped dispatcher.
+MCP-shaped dispatcher with pluggable transport.
 
 Phase 4 contract: `dispatch(worker, tool, args) -> {ok, result | error}`.
-Phase 5 swaps the registry's `run` callables for JSON-RPC calls into the actual
-MCP worker containers — call sites in specialists stay identical.
+Phase 5 adds a transport switch (`DATAPILOT_MCP_TRANSPORT`):
+  - "stdio"      (production default): JSON-RPC over stdio to the worker
+                 subprocesses managed by the Electron orchestrator.
+  - "in_process" (test / dev default via `mock_neo4j` fixture): calls the
+                 worker tool's `run` function in-process — same as Phase 4.
+
+Specialist call sites are unchanged. `mock_neo4j` autouse fixture in
+`backend/tests/conftest.py` forces `in_process` so all existing tests keep
+passing.
 
 Tool catalog is built at import-time by introspecting each tool module's
 WORKER / NAME / DESCRIPTION / INPUT_SCHEMA / OUTPUT_SCHEMA / run.
@@ -11,6 +18,7 @@ WORKER / NAME / DESCRIPTION / INPUT_SCHEMA / OUTPUT_SCHEMA / run.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Callable, TypedDict
 
@@ -98,6 +106,12 @@ def get_tool(worker: str, name: str) -> ToolDescriptor | None:
     return _REGISTRY.get((worker, name))
 
 
+def _current_transport() -> str:
+    """Read the transport at call time so test fixtures can toggle without
+    re-importing the module."""
+    return os.environ.get("DATAPILOT_MCP_TRANSPORT", "stdio").lower()
+
+
 def dispatch(worker: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
     """
     Invoke a registered tool. Returns the tool's response unmodified — i.e.
@@ -105,7 +119,19 @@ def dispatch(worker: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
 
     The dispatcher itself never raises — unknown tools return a structured
     `tool_unavailable` error so the specialist's ReAct loop can replan around it.
+
+    Transport is selected by `DATAPILOT_MCP_TRANSPORT`:
+      - "in_process": same as Phase 4 — call the worker tool's `run` directly.
+      - "stdio" (default): JSON-RPC over stdio to the worker subprocess.
     """
+    transport = _current_transport()
+    if transport == "in_process":
+        return _dispatch_in_process(worker, name, args)
+    return _dispatch_stdio(worker, name, args)
+
+
+def _dispatch_in_process(worker: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """In-process dispatch — what Phase 4 used everywhere."""
     desc = _REGISTRY.get((worker, name))
     if desc is None:
         logger.warning("dispatch: unknown tool %s.%s", worker, name)
@@ -132,12 +158,42 @@ def dispatch(worker: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
             },
         }
     latency_ms = int((time.perf_counter() - started) * 1000)
-    # Tools may return well-formed envelopes; normalize legacy shapes anyway.
     if isinstance(result, dict) and "ok" in result:
         result.setdefault("latency_ms", latency_ms)
         return result
-    # Tool returned a bare value — wrap it.
     return {"ok": True, "result": result, "latency_ms": latency_ms}
+
+
+def _dispatch_stdio(worker: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """
+    JSON-RPC over stdio to a worker subprocess.
+
+    The worker subprocesses are managed by `app.agent.mcp_stdio.WorkerPool` —
+    one persistent child process per worker, recycled on failure. The pool is
+    lazy: workers are launched on first dispatch.
+
+    Imported lazily so the in-process path stays zero-dependency. If the
+    `mcp` SDK or worker code is unreachable, we degrade to the in-process
+    fallback (which is the Phase 4 behavior the dispatcher already supports).
+    """
+    try:
+        from app.agent.mcp_stdio import worker_pool
+        return worker_pool.dispatch(worker, name, args)
+    except ImportError:
+        logger.warning("mcp_stdio unavailable, falling back to in_process dispatch")
+        return _dispatch_in_process(worker, name, args)
+    except Exception as exc:
+        # Worker subprocess died, broken pipe, etc. Report as tool_unavailable
+        # so specialists can replan around it (spec §13 graceful degradation).
+        logger.exception("stdio dispatch to %s.%s failed", worker, name)
+        return {
+            "ok": False,
+            "error": {
+                "code": "tool_unavailable",
+                "message": str(exc),
+                "retryable": True,
+            },
+        }
 
 
 def llm_tool_defs(worker_subset: list[str] | None = None) -> list[dict[str, Any]]:

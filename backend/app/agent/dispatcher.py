@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 from app.agent.specialists.defaults import get_specialist
-from app.agent.state import GraphState
+from app.agent.state import MAX_REPLANS, GraphState
 from app.llm.router import LLMRouter
 
 logger = logging.getLogger(__name__)
@@ -60,15 +60,17 @@ def route_after_dispatch(state: GraphState) -> str:
     """
     Conditional edge after dispatcher:
       - 'replan' if the last specialist returned low confidence or tool_unavailable
+        AND we still have replan budget remaining
       - 'dispatcher' if more plan steps remain
-      - 'composer' if the plan is exhausted
+      - 'composer' if the plan is exhausted (or the replan cap is hit)
     """
     plan = state.get("plan", [])
     idx = state.get("plan_idx", 0)
     outputs = state.get("specialist_outputs", {})
+    replan_count = int(state.get("replan_count", 0) or 0)
 
     # Inspect the most recent specialist result.
-    if plan and idx > 0:
+    if plan and idx > 0 and replan_count < MAX_REPLANS:
         last_step = plan[idx - 1]
         last_result = outputs.get(last_step["specialist"]) or {}
         confidence = float(last_result.get("confidence", 1.0))

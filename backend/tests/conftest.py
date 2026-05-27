@@ -8,6 +8,10 @@ os.environ["DATAPILOT_DATA_DIR"] = os.path.abspath(os.path.join(os.path.dirname(
 os.environ["NEO4J_URI"] = "bolt://localhost:7687"
 os.environ["NEO4J_USER"] = "neo4j"
 os.environ["NEO4J_PASSWORD"] = "test-pass"
+# Phase 5: production default for `mcp_client.dispatch` is `stdio`, which would
+# try to launch worker subprocesses. Tests use the in-process registry so the
+# Phase 4 + 4.5 test suite stays fast and offline.
+os.environ["DATAPILOT_MCP_TRANSPORT"] = "in_process"
 
 # Add backend directory to sys.path
 backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
