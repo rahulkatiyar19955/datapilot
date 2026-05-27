@@ -43,11 +43,33 @@ data/
 # Logs
 *.log
 
-# Sample bags larger than 250MB are not committed (small demo bags only)
+# Binary telemetry blobs & ROS bags (except small demo bags)
+*.mcap
+*.db3
+*.bag
+*.active
+!sample_bags/
+!sample_bags/*.mcap
+!sample_bags/*.db3
 sample_bags/large_*.mcap
 sample_bags/large_*.db3
+
+# Machine learning models, caches and large weights
+*.gguf
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.h5
+.cache/
+huggingface/
+data_test/
+backend/data_test/
 
 # Secrets
 .env
 .env.local
 .env.*.local
+
