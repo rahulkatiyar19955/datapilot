@@ -78,3 +78,64 @@ class AnomalyItem(BaseModel):
     confidence: float = 1.0
     topic: Optional[str] = None
     label: Optional[str] = None
+
+
+# ── Phase 4: Chat (agent orchestration) ─────────────────────────────────────
+
+
+class ChatRequest(BaseModel):
+    """Body of POST /api/sessions/{id}/chat."""
+    message: str
+    composer_provider: Optional[str] = None   # "anthropic" | "openai" | "gemini" | "ollama"
+    composer_model: Optional[str] = None      # model id (overrides defaults)
+
+
+class Finding(BaseModel):
+    sev: str                  # 'critical' | 'warning' | 'info' | 'success'
+    text: str
+    detail: Optional[str] = None
+    log_ids: List[str]
+
+
+class CausalStep(BaseModel):
+    label: str
+    log_id: Optional[str] = None
+    edge_in: Optional[str] = None
+    edge_out: Optional[str] = None
+
+
+class Citation(BaseModel):
+    log_id: str
+    ts: float
+    node: str
+    snippet: str
+
+
+class AuditEvent(BaseModel):
+    step_kind: str            # 'supervisor_plan' | 'specialist_start' | 'tool_call' | …
+    specialist: Optional[str] = None
+    tool: Optional[str] = None
+    args_summary: Optional[str] = None
+    result_summary: Optional[str] = None
+    tokens_in: Optional[int] = 0
+    tokens_out: Optional[int] = 0
+    latency_ms: Optional[int] = 0
+    ts: Optional[float] = None
+
+
+class UsageMetrics(BaseModel):
+    tokens_in: int
+    tokens_out: int
+    est_cost_usd: float
+
+
+class ChatMessageEnvelope(BaseModel):
+    """The terminal SSE `final` event payload."""
+    response: str
+    plan: List[Dict[str, Any]] = Field(default_factory=list)
+    findings: List[Finding] = Field(default_factory=list)
+    causal: List[CausalStep] = Field(default_factory=list)
+    audit_trail: List[AuditEvent] = Field(default_factory=list)
+    citations: List[Citation] = Field(default_factory=list)
+    usage: Optional[UsageMetrics] = None
+    partial: bool = False
