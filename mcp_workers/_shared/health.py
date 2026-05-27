@@ -22,6 +22,14 @@ def start_health_server(worker_name: str, port: int, tool_count_fn: Callable[[],
     """
 
     class Handler(BaseHTTPRequestHandler):
+        def address_string(self):  # type: ignore[override]
+            # `BaseHTTPRequestHandler.address_string` does a reverse DNS lookup
+            # by default. On Docker networks (and any host with slow / missing
+            # DNS) that lookup can stall multiple seconds, blowing past the
+            # backend's 1.5s health-probe timeout and flipping the worker's UI
+            # status to `disconnected`. Returning the raw IP keeps probes snappy.
+            return self.client_address[0]
+
         def do_GET(self):
             if self.path != "/health":
                 self.send_response(404)

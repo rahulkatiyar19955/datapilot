@@ -19,9 +19,11 @@ contract, not a high-throughput pool. Specialists rarely hit > 1 RPS today.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
+import select
 import subprocess
 import sys
 import threading
@@ -70,11 +72,15 @@ class WorkerHandle:
         env["DATAPILOT_MCP_TRANSPORT"] = "in_process"
 
         logger.info("spawning MCP worker %s via %s", self.worker, self.module)
+        # `stderr=None` inherits the parent's stderr so worker log lines flow to
+        # the backend's stderr stream. Capturing into a pipe without a draining
+        # reader would deadlock the child once the OS pipe buffer fills (workers
+        # configure logging at INFO to sys.stderr, so this matters in practice).
         self.proc = subprocess.Popen(
             [sys.executable, "-m", self.module],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=None,
             env=env,
             cwd=str(_REPO_ROOT),
             bufsize=0,
@@ -97,20 +103,35 @@ class WorkerHandle:
         self.proc.stdin.write(line)
         self.proc.stdin.flush()
 
-        # Read until we get a non-empty line.
+        # Read until we get our matching response or hit the deadline.
+        #
+        # `readline()` alone is blocking — a frozen worker would hang forever
+        # and silently ignore the 30s budget. We gate it on `select.select()`
+        # so the deadline is enforced even when the child has stalled.
+        # (POSIX-only; workers run in Linux containers, dev is macOS — both
+        # support select() on subprocess pipes. Windows is not a target here.)
         deadline = time.time() + 30.0
-        while time.time() < deadline:
-            raw = self.proc.stdout.readline()
+        stdout = self.proc.stdout
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                raise TimeoutError(f"worker {self.worker} timed out on {method}")
+            ready, _, _ = select.select([stdout], [], [], remaining)
+            if not ready:
+                raise TimeoutError(f"worker {self.worker} timed out on {method}")
+            raw = stdout.readline()
             if not raw:
                 # Pipe closed.
                 raise RuntimeError(f"worker {self.worker} stdout closed (exit={self.proc.poll()})")
+            # `errors="replace"` so a stray non-UTF-8 byte (binary debug print,
+            # corrupted log) doesn't crash the dispatch — we'd rather drop the
+            # offending line and keep reading.
             try:
-                response = json.loads(raw.decode("utf-8").strip())
+                response = json.loads(raw.decode("utf-8", errors="replace").strip())
             except json.JSONDecodeError:
                 continue  # might be a log line from the worker
             if response.get("id") == self._next_id:
                 return response
-        raise TimeoutError(f"worker {self.worker} timed out on {method}")
 
     def call_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Send a `tools/call` request. Returns the parsed tool result envelope."""
@@ -194,3 +215,10 @@ class WorkerPool:
 
 # Module-level singleton — `mcp_client._dispatch_stdio` consumes this.
 worker_pool = WorkerPool()
+
+# Belt-and-suspenders cleanup: the FastAPI lifespan shutdown already calls
+# `worker_pool.shutdown()`, but `atexit` also covers abrupt exits (uncaught
+# exceptions, direct script invocations, pytest runners) so we don't leak
+# orphaned worker subprocesses. SIGKILL still bypasses this — that's
+# unavoidable, the OS reaps the children on its own.
+atexit.register(worker_pool.shutdown)
