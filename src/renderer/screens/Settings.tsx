@@ -302,7 +302,9 @@ function KeyInput({
               </span>
             )}
             {localStatus === 'idle' && (
-              <span className="pill sm ghost">no key</span>
+              <span className="pill sm ghost">
+                {provider.id === 'ollama' ? 'not tested' : 'no key'}
+              </span>
             )}
             {localStatus === 'testing' && (
               <span className="pill sm ghost">
@@ -538,7 +540,7 @@ function ModelsSection(): JSX.Element {
   const [dynamicModels, setDynamicModels] = useState<Record<string, string[]>>({})
 
   const statusFor = (id: string): 'connected' | 'not_set' | 'error' => {
-    if (id === 'ollama') return 'connected'
+    if (id === 'ollama') return 'not_set'
     if (!apiKeys[id]) return 'not_set'
     return 'connected'
   }

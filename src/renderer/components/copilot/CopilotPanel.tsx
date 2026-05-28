@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { Icon } from '@renderer/components/Icon'
 import { useChatStore } from '@renderer/stores/chat'
 import { useSessionStore } from '@renderer/stores/session'
+import { useSettingsStore } from '@renderer/stores/settings'
+import { useUIStore } from '@renderer/stores/ui'
 import { ChatMessage } from './ChatMessage'
 import { ContextChips } from './ContextChips'
 import { CommandBar } from './CommandBar'
@@ -12,7 +14,11 @@ export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages)
   const clearMessages = useChatStore((s) => s.clearMessages)
   const { status, clearSession, setPendingPath, pendingPath, setPendingSessionId } = useSessionStore()
+  const { apiKeys, defaultProvider } = useSettingsStore()
+  const { setScreen } = useUIStore()
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const showWarningBanner = defaultProvider !== 'ollama' && !apiKeys[defaultProvider]
 
 
   /**
@@ -215,6 +221,72 @@ export function CopilotPanel(): JSX.Element {
           </div>
         )}
       </div>
+
+      {/* Model Connection Warning Banner */}
+      {showWarningBanner && (
+        <div
+          style={{
+            margin: '12px 14px 4px 14px',
+            padding: '12px',
+            borderRadius: '8px',
+            background: 'oklch(0.18 0.04 30 / 0.45)',
+            border: '1px solid oklch(0.65 0.14 30 / 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            animation: 'fadeIn 0.3s ease-out',
+            flexShrink: 0,
+          }}
+        >
+          <div className="row gap-2" style={{ alignItems: 'flex-start' }}>
+            <div style={{ color: 'oklch(0.7 0.15 35)', marginTop: 2, flexShrink: 0 }}>
+              <Icon.Sparkles size={16} />
+            </div>
+            <div className="col gap-1" style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-0)' }}>
+                AI Model Not Connected
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--color-text-2)', lineHeight: 1.4 }}>
+                Please configure your <b>{defaultProvider === 'google' ? 'Gemini (Google)' : defaultProvider === 'anthropic' ? 'Claude (Anthropic)' : defaultProvider === 'openai' ? 'OpenAI' : 'Custom'}</b> API key in settings to enable the Copilot.
+              </span>
+            </div>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button
+              className="btn sm"
+              style={{
+                background: 'oklch(0.65 0.14 30 / 0.15)',
+                color: 'oklch(0.75 0.12 30)',
+                border: '1px solid oklch(0.65 0.14 30 / 0.3)',
+                borderRadius: '6px',
+                fontSize: 10.5,
+                padding: '3px 8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                fontWeight: 600,
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'oklch(0.65 0.14 30 / 0.3)'
+                e.currentTarget.style.borderColor = 'oklch(0.65 0.14 30 / 0.5)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'oklch(0.65 0.14 30 / 0.15)'
+                e.currentTarget.style.borderColor = 'oklch(0.65 0.14 30 / 0.3)'
+              }}
+              onClick={() => setScreen('settings')}
+            >
+              <Icon.Settings size={11} />
+              Open Settings
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Context chips */}
       <ContextChips />
