@@ -138,3 +138,26 @@ async def list_provider_models(payload: ModelsListRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+class KeyUpdateRequest(BaseModel):
+    provider: str
+    key: str
+
+
+@router.post("/keys")
+async def update_key(payload: KeyUpdateRequest):
+    from app.config import settings
+
+    provider = payload.provider.lower()
+    key = payload.key.strip()
+
+    if provider == "openai":
+        settings.openai_api_key = key or None
+    elif provider == "anthropic":
+        settings.anthropic_api_key = key or None
+    elif provider == "google" or provider == "gemini":
+        settings.gemini_api_key = key or None
+
+    return {"status": "success", "message": f"Updated API key for {provider}"}
+
+

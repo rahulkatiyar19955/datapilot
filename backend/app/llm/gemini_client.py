@@ -97,7 +97,10 @@ class GeminiClient:
         }
         if response_format:
             generation_config_dict["response_mime_type"] = "application/json"
-            generation_config_dict["response_schema"] = response_format
+            # Use response_json_schema (accepts standard JSON Schema including
+            # additionalProperties, minItems, etc.) instead of response_schema
+            # which only accepts Gemini's native Schema type.
+            generation_config_dict["response_json_schema"] = response_format
 
         if self.thinking_level:
             generation_config_dict["thinking_config"] = {

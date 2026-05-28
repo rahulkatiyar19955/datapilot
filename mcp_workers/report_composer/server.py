@@ -1,10 +1,8 @@
 """
 `report_composer` MCP worker.
 
-Phase 5 ships the `format_causal_chain` stub here; the composer's other
-formatting helpers (findings card, recommendations) currently live inline in
-`app.agent.composer` and migrate behind this transport in a future phase.
-Mirrors the canary worker pattern: stdio JSON-RPC + HTTP `/health`.
+Wraps `app.agent.tools.format_causal_chain`.
+Exposes stdio JSON-RPC + HTTP `/health` on port 9005.
 """
 from __future__ import annotations
 
@@ -14,7 +12,7 @@ import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from app.agent.tools.stubs import format_causal_chain
+from app.agent.tools import format_causal_chain
 
 from mcp_workers._shared.health import start_health_server
 from mcp_workers._shared.wrap_tool import register_tool
@@ -26,15 +24,24 @@ HEALTH_PORT = int(os.environ.get("REPORT_COMPOSER_HEALTH_PORT", "9005"))
 
 mcp = FastMCP(WORKER_NAME)
 
-# Phase 5 stub — the composer's tree-character formatter ships behind MCP here.
 register_tool(mcp, format_causal_chain)
 
 
 def main() -> None:
+    import signal
+    import time
+
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     start_health_server(WORKER_NAME, HEALTH_PORT, lambda: 1)
-    logger.info("%s MCP server starting on stdio", WORKER_NAME)
-    mcp.run()
+    logger.info("%s MCP server ready (health on :%d)", WORKER_NAME, HEALTH_PORT)
+    try:
+        mcp.run()
+    except Exception:
+        logger.exception("MCP stdio loop exited unexpectedly")
+    logger.info("%s stdio closed; staying alive for /health", WORKER_NAME)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    while True:
+        time.sleep(60)
 
 
 if __name__ == "__main__":

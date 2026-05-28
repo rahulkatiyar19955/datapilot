@@ -1,10 +1,10 @@
 """
 `anomaly_detector` MCP worker.
 
-Wraps Phase 4's real `app.agent.tools.find_dropouts` plus the broad family of
-anomaly stubs (statistical outliers, signature matches, per-node CPU, rate
-regressions, cross-session comparisons). Mirrors the canary worker pattern:
-stdio JSON-RPC + HTTP `/health` on a per-worker port.
+Wraps `app.agent.tools.{find_dropouts, find_statistical_outliers,
+find_signature_matches, compute_node_cpu, find_rate_regressions,
+compare_metric_distributions, compare_log_signatures}`.
+Exposes stdio JSON-RPC + HTTP `/health` on port 9004.
 """
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 from app.agent.tools import find_dropouts
-from app.agent.tools.stubs import (
-    find_outliers,
-    find_signatures,
+from app.agent.tools import (
+    find_statistical_outliers,
+    find_signature_matches,
     compute_node_cpu,
     find_rate_regressions,
     compare_metric_distributions,
@@ -34,11 +34,9 @@ HEALTH_PORT = int(os.environ.get("ANOMALY_DETECTOR_HEALTH_PORT", "9004"))
 
 mcp = FastMCP(WORKER_NAME)
 
-# Real tool.
 register_tool(mcp, find_dropouts)
-# Phase 5 stubs — deepened as real anomaly math / signatures land here.
-register_tool(mcp, find_outliers)
-register_tool(mcp, find_signatures)
+register_tool(mcp, find_statistical_outliers)
+register_tool(mcp, find_signature_matches)
 register_tool(mcp, compute_node_cpu)
 register_tool(mcp, find_rate_regressions)
 register_tool(mcp, compare_metric_distributions)
@@ -46,10 +44,20 @@ register_tool(mcp, compare_log_signatures)
 
 
 def main() -> None:
+    import signal
+    import time
+
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     start_health_server(WORKER_NAME, HEALTH_PORT, lambda: 7)
-    logger.info("%s MCP server starting on stdio", WORKER_NAME)
-    mcp.run()
+    logger.info("%s MCP server ready (health on :%d)", WORKER_NAME, HEALTH_PORT)
+    try:
+        mcp.run()
+    except Exception:
+        logger.exception("MCP stdio loop exited unexpectedly")
+    logger.info("%s stdio closed; staying alive for /health", WORKER_NAME)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    while True:
+        time.sleep(60)
 
 
 if __name__ == "__main__":

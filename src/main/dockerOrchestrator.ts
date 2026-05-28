@@ -420,6 +420,19 @@ class DockerOrchestrator {
         throw new Error('Neo4j database failed to become healthy within 30 seconds.')
       }
 
+      // Start MCAP parser service before the backend (backend calls it during ingestion).
+      console.log('Starting MCAP Parser...')
+      this.setStatus({ state: 'pending', progress: 70, step: 'Starting MCAP Parser service…' })
+      await this.startContainer('mcap-parser', {
+        Image: 'datapilot/mcap-parser:local',
+        Env: ['DATAPILOT_HOST_MOUNT=/host'],
+        HostConfig: {
+          Binds: [`${userHome}:/host:ro`],
+          NetworkMode: 'datapilot-net',
+        },
+      })
+      // No health poll — backend falls back to inline parser if still initializing.
+
       console.log('Starting FastAPI Backend...')
       this.setStatus({ state: 'pending', progress: 75, step: 'Starting FastAPI Backend container…' })
 
@@ -428,7 +441,11 @@ class DockerOrchestrator {
         'NEO4J_USER=neo4j',
         'NEO4J_PASSWORD=datapilot-local',
         'DATAPILOT_HOST_MOUNT=/host',
-        'DATAPILOT_DATA_DIR=/data'
+        'DATAPILOT_DATA_DIR=/data',
+        'MCAP_PARSER_URL=http://datapilot-mcap-parser:8100',
+        // in_process: tools are called directly in the backend process — no
+        // subprocess overhead. Workers still run to serve their /health endpoints.
+        'DATAPILOT_MCP_TRANSPORT=in_process',
       ]
 
       const anthropicKey = this.getSecureKey('anthropic')
@@ -470,41 +487,42 @@ class DockerOrchestrator {
       // Start the 5 MCP Workers in parallel
       console.log('Starting MCP workers...')
       this.setStatus({ state: 'pending', progress: 90, step: 'Starting MCP worker nodes…' })
+      const neo4jEnv = [
+        'NEO4J_URI=bolt://datapilot-neo4j:7687',
+        'NEO4J_USER=neo4j',
+        'NEO4J_PASSWORD=datapilot-local',
+      ]
       const workers = [
         {
           name: 'rosbag-reader',
           image: 'datapilot/mcp-rosbag-reader:local',
           binds: [`${userHome}:/host:ro`],
-          env: ['DATAPILOT_HOST_MOUNT=/host']
+          env: ['DATAPILOT_HOST_MOUNT=/host', ...neo4jEnv],
         },
         {
           name: 'trajectory-analyzer',
           image: 'datapilot/mcp-trajectory-analyzer:local',
           binds: [`${userHome}:/host:ro`],
-          env: ['DATAPILOT_HOST_MOUNT=/host']
+          env: ['DATAPILOT_HOST_MOUNT=/host', ...neo4jEnv],
         },
         {
           name: 'planner-failure-inspector',
           image: 'datapilot/mcp-planner-failure-inspector:local',
           binds: [],
-          env: [
-            'NEO4J_URI=bolt://datapilot-neo4j:7687',
-            'NEO4J_USER=neo4j',
-            'NEO4J_PASSWORD=datapilot-local'
-          ]
+          env: [...neo4jEnv],
         },
         {
           name: 'anomaly-detector',
           image: 'datapilot/mcp-anomaly-detector:local',
           binds: [`${userHome}:/host:ro`],
-          env: ['DATAPILOT_HOST_MOUNT=/host']
+          env: ['DATAPILOT_HOST_MOUNT=/host', ...neo4jEnv],
         },
         {
           name: 'report-composer',
           image: 'datapilot/mcp-report-composer:local',
           binds: [],
-          env: []
-        }
+          env: [...neo4jEnv],
+        },
       ]
 
       await Promise.all(
@@ -514,10 +532,10 @@ class DockerOrchestrator {
             Env: worker.env,
             HostConfig: {
               Binds: worker.binds,
-              NetworkMode: 'datapilot-net'
-            }
+              NetworkMode: 'datapilot-net',
+            },
           })
-        })
+        }),
       )
 
       console.log('All stack components started successfully.')

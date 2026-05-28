@@ -280,11 +280,15 @@ class IngestionParser:
     def __init__(self):
         self.tf_parser = TFParser()
 
-    def parse_bag(self, filepath: str) -> Dict[str, Any]:
+    async def parse_bag(self, filepath: str) -> Dict[str, Any]:
         """
         Parses a ROS bag file (.mcap or .db3).
-        If the file matches a demo name or isn't a valid/existing bag,
-        returns the corresponding high-fidelity mock dataset.
+
+        Tries the dedicated mcap-parser service first (multi-encoding support,
+        including Foxglove protobuf). Falls back to the inline CDR-only parser
+        when the service is unreachable (e.g. during tests or on first boot).
+
+        If the filename matches a demo dataset, returns the mock data directly.
         """
         filename = os.path.basename(filepath)
 
@@ -305,11 +309,20 @@ class IngestionParser:
             # Surface anomalies as a first-class field (Phase 3.§3.7 endpoint)
             data["anomalies"] = _derive_anomalies(data.get("timeline_events", []), data["logs"])
             return data
-            
+
         # Resolve the path — translates host paths to Docker-mounted equivalents.
         resolved = _resolve_path(filepath)
 
         if os.path.exists(resolved):
+            # Try the dedicated mcap-parser service first.
+            result = await self._parse_via_service(resolved)
+            if result is not None:
+                if result.get("parse_warnings"):
+                    for w in result["parse_warnings"]:
+                        logger.warning("mcap-parser [%s]: %s", filename, w)
+                return result
+
+            # Fallback: inline CDR-only parser.
             try:
                 if resolved.endswith(".mcap"):
                     return self._parse_mcap(resolved)
@@ -355,12 +368,42 @@ class IngestionParser:
             "replay": []
         }
 
+    async def _parse_via_service(self, resolved_filepath: str) -> Dict[str, Any] | None:
+        """POST the resolved file path to the mcap-parser service.
+
+        Returns the parsed dict on success, None if the service is unavailable
+        or returns an error (so the caller can fall back to inline parsing).
+        """
+        import httpx
+        service_url = os.environ.get("MCAP_PARSER_URL", "http://datapilot-mcap-parser:8100")
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                resp = await client.post(
+                    f"{service_url}/parse",
+                    json={"filepath": resolved_filepath},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data.get("ok", True):  # service returned an error envelope
+                    logger.warning(
+                        "mcap-parser returned error for %s: %s",
+                        resolved_filepath, data.get("error"),
+                    )
+                    return None
+                return data
+        except Exception as exc:
+            logger.warning(
+                "mcap-parser service unavailable (%s) — falling back to inline parser",
+                exc,
+            )
+            return None
+
     def _parse_mcap(self, filepath: str) -> Dict[str, Any]:
-        # Simple placeholder for real MCAP parser using `mcap` library
-        # In a real environment, it extracts /rosout, /diagnostics, and /tf
-        # For our purposes, we'll write a clean parser logic
+        # Inline CDR-only MCAP parser — fallback when mcap-parser service is down.
+        # Handles standard ROS 2 bags (/rosout CDR + /tf CDR).
+        # For Foxglove/protobuf bags, use the mcap-parser service instead.
         from mcap.reader import make_reader
-        from mcap_ros2_support.reader import read_ros2_messages
+        from mcap_ros2.reader import read_ros2_messages
 
         logs = []
         topics_dict = {}

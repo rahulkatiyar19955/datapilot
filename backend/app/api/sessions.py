@@ -35,8 +35,8 @@ async def run_ingestion(session_id: str, filepath: str):
             return
         
         try:
-            # 1. Parse ROS telemetry
-            parsed = ingestion_parser.parse_bag(filepath)
+            # 1. Parse ROS telemetry (via mcap-parser service, falls back to inline CDR parser)
+            parsed = await ingestion_parser.parse_bag(filepath)
             
             # 2. Vectorize log lines (DEBUG logs stored without embedding to
             # save cost — they're rarely useful for diagnosis).

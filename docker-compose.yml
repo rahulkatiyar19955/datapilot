@@ -71,6 +71,27 @@ services:
       timeout: 5s
       retries: 12
 
+  mcap-parser:
+    build:
+      context: .
+      dockerfile: mcap_parser/Dockerfile
+    image: datapilot/mcap-parser:local
+    container_name: datapilot-mcap-parser
+    networks: [datapilot-net]
+    ports:
+      - "8100:8100"
+    environment:
+      DATAPILOT_HOST_MOUNT: /host
+    # `/host` mount injected by the Electron orchestrator at runtime (read-only).
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8100/health', timeout=2).status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   # ── MCP workers (Phase 5) ──────────────────────────────────────────────
   # All workers share one build pattern: context is the repo root so the
   # image can pull in `backend/` (for `app.agent.tools.*`) + `mcp_workers/`
@@ -95,6 +116,8 @@ services:
     depends_on:
       backend:
         condition: service_started
+    stdin_open: true
+    tty: true
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9001/health', timeout=2).status==200 else 1)\""]
       interval: 5s
@@ -116,6 +139,8 @@ services:
     depends_on:
       backend:
         condition: service_started
+    stdin_open: true
+    tty: true
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9002/health', timeout=2).status==200 else 1)\""]
       interval: 5s
@@ -139,6 +164,8 @@ services:
     depends_on:
       neo4j:
         condition: service_healthy
+    stdin_open: true
+    tty: true
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9003/health', timeout=2).status==200 else 1)\""]
       interval: 5s
@@ -160,6 +187,8 @@ services:
     depends_on:
       backend:
         condition: service_started
+    stdin_open: true
+    tty: true
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9004/health', timeout=2).status==200 else 1)\""]
       interval: 5s
@@ -180,6 +209,8 @@ services:
     depends_on:
       backend:
         condition: service_started
+    stdin_open: true
+    tty: true
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9005/health', timeout=2).status==200 else 1)\""]
       interval: 5s

@@ -86,9 +86,18 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
         )}
       </div>
 
-      {/* Animated dots while waiting for the first content to arrive */}
+      {/* Animated dots — pre-plan: shown until the first plan step arrives */}
       {isThinking && !msg.plan?.length && !msg.summary && (
         <div className="chat-thinking">
+          <span /><span /><span />
+        </div>
+      )}
+
+      {msg.plan && msg.plan.length > 0 && <PlanCard steps={msg.plan} />}
+
+      {/* Animated dots — mid/post-plan: shown while steps execute and until summary arrives */}
+      {isThinking && !!msg.plan?.length && !msg.summary && (
+        <div className="chat-thinking" style={{ marginTop: 2 }}>
           <span /><span /><span />
         </div>
       )}
@@ -101,9 +110,32 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
         </div>
       )}
 
-      {msg.plan && msg.plan.length > 0 && <PlanCard steps={msg.plan} />}
       {msg.findings && <FindingsCard findings={msg.findings} />}
       {msg.causal && <CausalChain items={msg.causal} />}
+
+      {msg.role === 'assistant' && msg.usage && (
+        <div
+          className="row gap-2 dim"
+          style={{
+            fontSize: 10,
+            marginTop: 6,
+            fontFamily: 'var(--font-mono, monospace)',
+            opacity: 0.85,
+          }}
+        >
+          <Icon.Activity size={10} />
+          <span>In: {msg.usage.tokens_in.toLocaleString()}</span>
+          <span>·</span>
+          <span>Out: {msg.usage.tokens_out.toLocaleString()}</span>
+          {msg.usage.est_cost_usd !== undefined && msg.usage.est_cost_usd > 0 && (
+            <>
+              <span>·</span>
+              <span>Cost: ${msg.usage.est_cost_usd.toFixed(4)}</span>
+            </>
+          )}
+        </div>
+      )}
+
 
       {msg.actions && msg.actions.length > 0 && (
         <div className="row gap-2" style={{ flexWrap: 'wrap', marginTop: 6 }}>

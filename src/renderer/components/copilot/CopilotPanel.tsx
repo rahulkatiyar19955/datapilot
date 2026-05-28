@@ -13,13 +13,17 @@ import type { SessionMeta } from '@shared/types'
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages)
   const clearMessages = useChatStore((s) => s.clearMessages)
-  const { status, clearSession, setPendingPath, pendingPath, setPendingSessionId } = useSessionStore()
+  const { status, sessionId, clearSession, setPendingPath, pendingPath, setPendingSessionId } = useSessionStore()
   const { apiKeys, defaultProvider, defaultModel } = useSettingsStore()
   const { setScreen, setSettingsSectionTarget } = useUIStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const showWarningBanner = defaultProvider !== 'ollama' && !apiKeys[defaultProvider]
 
+  // Clear chat messages when session changes (e.g. from history click or clear)
+  useEffect(() => {
+    clearMessages()
+  }, [sessionId, clearMessages])
 
   /**
    * "New session" — clears the chat AND resets the session entirely so the
@@ -61,6 +65,11 @@ export function CopilotPanel(): JSX.Element {
   }, [messages.length])
 
   const modelLabel = (defaultModel || '').trim() || `${defaultProvider} default`
+
+  const totalIn = messages.reduce((acc, m) => acc + (m.usage?.tokens_in || 0), 0)
+  const totalOut = messages.reduce((acc, m) => acc + (m.usage?.tokens_out || 0), 0)
+  const totalTokens = totalIn + totalOut
+  const totalCost = messages.reduce((acc, m) => acc + (m.usage?.est_cost_usd || 0), 0)
 
   return (
     <div
@@ -106,6 +115,22 @@ export function CopilotPanel(): JSX.Element {
             {modelLabel}
           </span>
         </span>
+        {totalTokens > 0 && (
+          <span
+            className="pill sm ghost mono"
+            style={{
+              fontSize: 10,
+              gap: 4,
+              display: 'flex',
+              alignItems: 'center',
+              cursor: 'help',
+            }}
+            title={`Session usage:\n- Input: ${totalIn.toLocaleString()} tokens\n- Output: ${totalOut.toLocaleString()} tokens\n- Est. Cost: $${totalCost.toFixed(4)}`}
+          >
+            <Icon.Activity size={10} />
+            <span>{(totalTokens / 1000).toFixed(1)}k tokens</span>
+          </span>
+        )}
         <div className="flex1" />
         <button
           className="btn ghost icon sm"

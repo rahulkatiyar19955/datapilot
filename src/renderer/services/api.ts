@@ -281,3 +281,14 @@ export async function fetchProviderModels(
   })
 }
 
+export async function updateBackendKey(
+  provider: string,
+  key: string,
+): Promise<{ status: string; message: string }> {
+  return post<{ status: string; message: string }>('/api/settings/keys', {
+    provider,
+    key,
+  })
+}
+
+
