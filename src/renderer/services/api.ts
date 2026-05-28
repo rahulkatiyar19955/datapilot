@@ -212,8 +212,8 @@ export function streamChat(
         reader.read().then(({ done, value }) => {
           if (done) return
           buffer += dec.decode(value, { stream: true })
-          // SSE messages are separated by double newlines
-          const parts = buffer.split('\n\n')
+          // SSE messages are separated by double newlines (can be \r\n\r\n or \n\n)
+          const parts = buffer.split(/\r?\n\r?\n/)
           buffer = parts.pop() ?? ''
           for (const part of parts) {
             const eventMatch = part.match(/^event: (.+)$/m)
