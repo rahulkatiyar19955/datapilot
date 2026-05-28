@@ -58,7 +58,7 @@ def test_full_ingestion_pipeline_against_lidar_demo(mock_neo4j):
 
     # 2. Metadata persisted from demo dataset
     assert record.robot_name == "ARES-04"
-    assert record.total_messages == 12  # demo logs count
+    assert record.total_messages == 35300  # total_messages from demo dataset (not just log count)
     assert record.duration_seconds == 128.0
 
     # 3. Neo4j writers were each called

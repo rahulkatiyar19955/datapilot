@@ -91,7 +91,7 @@ async def run_ingestion(session_id: str, filepath: str):
             record.duration_seconds = parsed.get("duration_seconds")
             record.start_time = parsed.get("start_time")
             record.end_time = parsed.get("end_time")
-            record.total_messages = len(logs)
+            record.total_messages = parsed.get("total_messages", 0) or len(logs)
             record.topics_list = json.dumps([t["name"] for t in parsed.get("topics", [])])
             record.timeline_json = json.dumps(parsed.get("timeline_events", []))
             record.topics_json = json.dumps(parsed.get("topics", []))

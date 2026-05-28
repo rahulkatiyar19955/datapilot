@@ -179,6 +179,24 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
             if stats.message_end_time:
                 end_time = stats.message_end_time / 1e9
 
+        # ── Fallback message count when stats block has no channel counts ────
+        # Some MCAP recorders write timing stats but omit channel_message_counts.
+        # In that case every topic shows msgs=0; iterate to get real counts.
+        if topics_dict and sum(td["msgs"] for td in topics_dict.values()) == 0:
+            warnings.append(
+                "MCAP statistics block missing message counts — counting by iteration"
+            )
+            for _, channel, message in reader.iter_messages():
+                topic = channel_to_topic.get(channel.id)
+                if topic and topic in topics_dict:
+                    topics_dict[topic]["msgs"] += 1
+                if message.log_time:
+                    ts = message.log_time / 1e9
+                    if start_time is None or ts < start_time:
+                        start_time = ts
+                    if end_time is None or ts > end_time:
+                        end_time = ts
+
         # ── Split channels by encoding ────────────────────────────────────────
         # iter_decoded_messages throws when it hits a protobuf channel and no
         # protobuf factory is registered.  Only pass CDR channels to it.

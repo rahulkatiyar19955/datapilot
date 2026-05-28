@@ -26,6 +26,7 @@ from app.agent.tools import (
     find_aborts,
     find_dropouts,
     query_causal_chain,
+    query_graph,
     query_topic,
     read_tf_chain,
     retrieve_logs,
@@ -80,6 +81,7 @@ def _register(module: Any) -> None:
 for _module in (
     retrieve_logs,
     query_topic,
+    query_graph,
     find_aborts,
     query_causal_chain,
     find_dropouts,

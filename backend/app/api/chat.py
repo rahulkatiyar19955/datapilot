@@ -45,11 +45,21 @@ def _format_sse(event: str, data: Any) -> dict[str, str]:
 
 
 def _session_summary_string(record: SessionRecord) -> str:
+    topics_str = ""
+    if record.topics_json:
+        try:
+            td = json.loads(record.topics_json)
+            if td:
+                names = [f"{t['name']}({t.get('type', '?')})" for t in td[:15]]
+                topics_str = f", topics=[{', '.join(names)}]"
+        except Exception:
+            pass
     return (
         f"filename={record.filename}, "
         f"robot={record.robot_name or 'unknown'}, "
         f"duration_s={record.duration_seconds or 0}, "
         f"total_messages={record.total_messages or 0}"
+        f"{topics_str}"
     )
 
 
