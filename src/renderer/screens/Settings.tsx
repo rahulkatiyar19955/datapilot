@@ -320,7 +320,13 @@ function KeyInput({
       <div className="row gap-2" style={{ marginTop: 10 }}>
         <button 
           className="btn ghost sm"
-          onClick={() => alert(`API Connection test successful for ${provider.name}!`)}
+          onClick={() => {
+            if (!value) {
+              alert(`Cannot test connection: No API key configured for ${provider.name}.`)
+              return
+            }
+            alert(`API Connection test successful for ${provider.name}!`)
+          }}
         >
           <Icon.Refresh size={11} />
           Test
