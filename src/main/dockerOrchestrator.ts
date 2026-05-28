@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, safeStorage } from 'electron'
 import Docker from 'dockerode'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
@@ -23,6 +23,41 @@ class DockerOrchestrator {
     this.docker = new Docker({ socketPath: this.socketPath })
   }
 
+  private getSettings(): Record<string, any> {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+    if (!fs.existsSync(settingsPath)) return {}
+    try {
+      return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+    } catch {
+      return {}
+    }
+  }
+
+  private getSecureKey(key: string): string | null {
+    const settings = this.getSettings()
+    const encryptedValue = settings[`secure_${key}`]
+    if (!encryptedValue) return null
+    try {
+      if (safeStorage.isEncryptionAvailable()) {
+        return safeStorage.decryptString(Buffer.from(encryptedValue, 'base64'))
+      } else {
+        return Buffer.from(encryptedValue, 'base64').toString('utf-8')
+      }
+    } catch (err) {
+      console.error(`Failed to decrypt key in orchestrator: ${key}`, err)
+      return null
+    }
+  }
+
+  private initDocker() {
+    const settings = this.getSettings()
+    const customSocket = settings['docker_socket']
+    this.socketPath = customSocket || (process.platform === 'win32'
+      ? '\\\\.\\pipe\\docker_engine'
+      : '/var/run/docker.sock')
+    this.docker = new Docker({ socketPath: this.socketPath })
+  }
+
   public getStatus(): DockerStatus {
     return this.status
   }
@@ -39,6 +74,7 @@ class DockerOrchestrator {
    * Verifies connection to the Docker daemon.
    */
   public async verifySocket(): Promise<boolean> {
+    this.initDocker()
     try {
       await this.docker.ping()
       return true
@@ -297,6 +333,7 @@ class DockerOrchestrator {
    * Boots the full Docker stack.
    */
   public async ensureStackUp(): Promise<void> {
+    this.initDocker()
     const wasDaemonOff = this.status.state === 'error' && this.status.code === 'daemon_off'
     this.setStatus({ state: 'pending', progress: 5, step: 'Verifying Docker socket…' })
 
@@ -365,15 +402,31 @@ class DockerOrchestrator {
 
       console.log('Starting FastAPI Backend...')
       this.setStatus({ state: 'pending', progress: 75, step: 'Starting FastAPI Backend container…' })
+
+      const backendEnv = [
+        'NEO4J_URI=bolt://datapilot-neo4j:7687',
+        'NEO4J_USER=neo4j',
+        'NEO4J_PASSWORD=datapilot-local',
+        'DATAPILOT_HOST_MOUNT=/host',
+        'DATAPILOT_DATA_DIR=/data'
+      ]
+
+      const anthropicKey = this.getSecureKey('anthropic')
+      if (anthropicKey) {
+        backendEnv.push(`ANTHROPIC_API_KEY=${anthropicKey}`)
+      }
+      const openaiKey = this.getSecureKey('openai')
+      if (openaiKey) {
+        backendEnv.push(`OPENAI_API_KEY=${openaiKey}`)
+      }
+      const geminiKey = this.getSecureKey('google')
+      if (geminiKey) {
+        backendEnv.push(`GEMINI_API_KEY=${geminiKey}`)
+      }
+
       await this.startContainer('backend', {
         Image: 'datapilot/backend:local',
-        Env: [
-          'NEO4J_URI=bolt://datapilot-neo4j:7687',
-          'NEO4J_USER=neo4j',
-          'NEO4J_PASSWORD=datapilot-local',
-          'DATAPILOT_HOST_MOUNT=/host',
-          'DATAPILOT_DATA_DIR=/data'
-        ],
+        Env: backendEnv,
         HostConfig: {
           PortBindings: {
             '8000/tcp': [{ HostPort: '8000' }]
