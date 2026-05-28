@@ -24,11 +24,15 @@ import {
   ChevronRight,
   Clock,
   Code,
+  Copy,
   Cpu,
   Database,
   Download,
+  Eye,
+  EyeOff,
   File,
   Filter,
+  Globe,
   Key,
   Layers,
   LayoutGrid,
@@ -40,7 +44,9 @@ import {
   Pause,
   Pin,
   Play,
+  Plug,
   Plus,
+  Power,
   RefreshCw,
   Search,
   Send,
@@ -50,6 +56,7 @@ import {
   Sun,
   Tag,
   Terminal,
+  Trash2,
   Upload,
   Wifi,
   X,
@@ -106,12 +113,23 @@ export const Icon = {
   Wifi,
   Battery,
   Cpu,
+  Power,
 
   // Settings categories
   Box,
   Database,
   Key,
   Code,
+  Globe,
+
+  // MCP / integrations
+  Plug,
+
+  // API key management
+  Eye,
+  EyeOff,
+  Copy,
+  Trash: Trash2,
 } as const
 
 export type IconName = keyof typeof Icon

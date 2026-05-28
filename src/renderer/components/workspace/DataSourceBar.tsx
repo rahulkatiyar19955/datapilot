@@ -1,12 +1,9 @@
 import { useState, type JSX } from 'react'
 import { Icon } from '@renderer/components/Icon'
 import { useSessionStore } from '@renderer/stores/session'
-import { useUIStore } from '@renderer/stores/ui'
-
 export function DataSourceBar(): JSX.Element {
   const [sourceMode, setSourceMode] = useState<'rosbag' | 'live'>('rosbag')
   const { meta, status } = useSessionStore()
-  const setScreen = useUIStore((s) => s.setScreen)
 
   const filename = meta?.filename.split(/[/\\]/).pop() ?? null
   const isReady = status === 'ready'
@@ -98,8 +95,8 @@ export function DataSourceBar(): JSX.Element {
       <div className="row gap-1" style={{ marginLeft: 8 }}>
         <button
           className="btn sm"
-          onClick={() => setScreen('replay')}
-          title="Open in Replay"
+          title="Replay — coming soon"
+          disabled
         >
           <Icon.Play size={12} />
           Replay

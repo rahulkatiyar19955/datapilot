@@ -1,19 +1,6 @@
-import { useEffect } from 'react'
-import { useUIStore } from '@renderer/stores/ui'
-
+// Phase 10 (Semantic Search) is skipped in the current release.
+// This hook is intentionally empty — kept as a placeholder so the
+// import in App.tsx compiles without churn. Re-populate when Phase 10 ships.
 export function useGlobalShortcut(): void {
-  const setSearchOpen = useUIStore((s) => s.setSearchOpen)
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setSearchOpen(true)
-      } else if (e.key === 'Escape') {
-        setSearchOpen(false)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [setSearchOpen])
+  // no-op
 }
