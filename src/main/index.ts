@@ -6,6 +6,11 @@ import { registerIpcHandlers } from './ipcHandlers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+// Enable remote debugging port in development mode so AI agents can inspect the app screen
+if (process.env.ELECTRON_RENDERER_URL) {
+  app.commandLine.appendSwitch('remote-debugging-port', '8315')
+}
+
 // Single-instance lock — second launch focuses the existing window.
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {

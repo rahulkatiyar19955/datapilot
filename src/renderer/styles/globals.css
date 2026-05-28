@@ -18,6 +18,10 @@
   --color-accent-dim: oklch(0.42 0.10 235);
   --color-accent-bg: oklch(0.30 0.07 235 / 0.35);
   
+  --color-chat-user-bg: oklch(0.30 0.07 235 / 0.35);
+  --color-chat-user-border: oklch(0.42 0.10 235 / 0.55);
+  --color-chat-user-text: oklch(0.95 0.04 235);
+
   --color-ok: oklch(0.78 0.17 150);
   --color-warn: oklch(0.80 0.15 80);
   --color-danger: oklch(0.70 0.20 25);
@@ -43,9 +47,21 @@
   --color-accent-badge-text: oklch(0.92 0.10 235);
   --color-accent-hover: oklch(0.78 0.18 235);
 
+  /* Map / KGraph backgrounds and grid lines */
+  --color-map-bg: oklch(0.14 0.010 240);
+  --color-grid: oklch(0.24 0.01 240 / 0.6);
+  --color-grid-2: oklch(0.28 0.012 240 / 0.8);
+
+  --color-page-bg: oklch(0.08 0.01 240);
+  --color-titlebar-grad-a: oklch(0.22 0.013 240);
+  --color-titlebar-grad-b: oklch(0.19 0.012 240);
+
   /* Elevation Shadows */
-  --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 0.3);
-  --shadow-md: 0 4px 12px -2px oklch(0 0 0 / 0.4), 0 2px 4px -1px oklch(0 0 0 / 0.3);
+  --color-shadow-1: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 1px 2px 0 oklch(0 0 0 / 0.4);
+  --color-shadow-2: 0 1px 0 0 oklch(1 0 0 / 0.05) inset, 0 8px 24px -8px oklch(0 0 0 / 0.5);
+
+  --shadow-sm: var(--color-shadow-1);
+  --shadow-md: var(--color-shadow-2);
   --shadow-lg: 0 12px 24px -4px oklch(0 0 0 / 0.5), 0 4px 12px -2px oklch(0 0 0 / 0.4);
   
   --font-ui: 'Inter', -apple-system, system-ui, sans-serif;
@@ -53,50 +69,69 @@
 }
 
 [data-theme="light"] {
-  --color-bg-0: oklch(0.94 0.018 240);     /* Soft cool slate app background */
-  --color-bg-1: oklch(0.97 0.012 240);     /* Off-white structural panel backdrop */
-  --color-bg-2: oklch(1.0 0.0 240);        /* Crisp white card base */
-  --color-bg-3: oklch(0.91 0.022 240);     /* Soft highlight/button background */
-  --color-bg-4: oklch(0.86 0.026 240);     /* Active input/hover background */
-  --color-border-1: oklch(0.86 0.018 240);  /* Defined light border */
-  --color-border-2: oklch(0.74 0.024 240); /* Medium border focus */
-  --color-border-3: oklch(0.55 0.030 240);  /* Strong border focus */
-  --color-text-0: oklch(0.12 0.028 240);   /* Near black navy for headers/titles */
-  --color-text-1: oklch(0.22 0.020 240);   /* Dark charcoal slate for body text */
-  --color-text-2: oklch(0.42 0.018 240);   /* Medium slate for secondary text */
-  --color-text-3: oklch(0.54 0.014 240);   /* Accessible gray for muted details/captions */
-  --color-accent: oklch(0.50 0.20 250);    /* Vibrant readable electric blue */
-  --color-accent-dim: oklch(0.60 0.15 250);
-  --color-accent-bg: oklch(0.50 0.20 250 / 0.1);
-  --color-ok: oklch(0.48 0.18 145);        /* Accessible mint green */
-  --color-warn: oklch(0.58 0.16 75);       /* Accessible amber/gold */
-  --color-danger: oklch(0.52 0.22 25);     /* Accessible red alert */
-  --color-magenta: oklch(0.52 0.20 330);
+  --color-bg-0: oklch(0.985 0.003 240);
+  --color-bg-1: oklch(0.965 0.004 240);
+  --color-bg-2: oklch(0.99 0.003 240);
+  --color-bg-3: oklch(0.945 0.005 240);
+  --color-bg-4: oklch(0.91 0.006 240);
+
+  --color-border-1: oklch(0.89 0.006 240);
+  --color-border-2: oklch(0.82 0.008 240);
+  --color-border-3: oklch(0.72 0.010 240);
+
+  --color-text-0: oklch(0.18 0.012 240);
+  --color-text-1: oklch(0.30 0.012 240);
+  --color-text-2: oklch(0.48 0.012 240);
+  --color-text-3: oklch(0.62 0.010 240);
+
+  --color-accent: oklch(0.55 0.17 235);
+  --color-accent-dim: oklch(0.68 0.10 235);
+  --color-accent-bg: oklch(0.88 0.06 235 / 0.5);
+
+  --color-chat-user-bg: oklch(0.90 0.05 235);
+  --color-chat-user-border: oklch(0.70 0.08 235 / 0.5);
+  --color-chat-user-text: oklch(0.20 0.08 235);
+
+  --color-ok: oklch(0.55 0.16 150);
+  --color-warn: oklch(0.62 0.14 70);
+  --color-danger: oklch(0.55 0.19 25);
+  --color-magenta: oklch(0.55 0.18 330);
 
   /* Status pills in light theme - readable text on soft tinted backgrounds */
   --color-ok-text: var(--color-ok);
-  --color-ok-bg: oklch(0.48 0.18 145 / 0.12);
-  --color-ok-border: oklch(0.48 0.18 145 / 0.25);
+  --color-ok-bg: oklch(0.55 0.16 150 / 0.12);
+  --color-ok-border: oklch(0.55 0.16 150 / 0.25);
 
   --color-warn-text: var(--color-warn);
-  --color-warn-bg: oklch(0.58 0.16 75 / 0.12);
-  --color-warn-border: oklch(0.58 0.16 75 / 0.25);
+  --color-warn-bg: oklch(0.62 0.14 70 / 0.12);
+  --color-warn-border: oklch(0.62 0.14 70 / 0.25);
 
   --color-danger-text: var(--color-danger);
-  --color-danger-bg: oklch(0.52 0.22 25 / 0.12);
-  --color-danger-border: oklch(0.52 0.22 25 / 0.25);
+  --color-danger-bg: oklch(0.55 0.19 25 / 0.12);
+  --color-danger-border: oklch(0.55 0.19 25 / 0.25);
 
   --color-accent-text: var(--color-accent);
-  --color-accent-bg-pill: oklch(0.50 0.20 250 / 0.12);
-  --color-accent-border: oklch(0.50 0.20 250 / 0.25);
+  --color-accent-bg-pill: oklch(0.55 0.17 235 / 0.12);
+  --color-accent-border: oklch(0.55 0.17 235 / 0.25);
 
   --color-accent-badge-text: var(--color-accent);
-  --color-accent-hover: oklch(0.42 0.22 250);
+  --color-accent-hover: oklch(0.48 0.18 235);
+
+  /* Map / KGraph backgrounds and grid lines */
+  --color-map-bg: oklch(0.97 0.005 240);
+  --color-grid: oklch(0.90 0.006 240);
+  --color-grid-2: oklch(0.85 0.007 240);
+
+  --color-titlebar-grad-a: oklch(0.94 0.005 240);
+  --color-titlebar-grad-b: oklch(0.91 0.006 240);
+  --color-page-bg: oklch(0.88 0.006 240);
 
   /* Light Elevation Shadows */
-  --shadow-sm: 0 1px 2px 0 oklch(0.22 0.02 240 / 0.05);
-  --shadow-md: 0 4px 12px -2px oklch(0.22 0.02 240 / 0.08), 0 2px 6px -1px oklch(0.22 0.02 240 / 0.04);
-  --shadow-lg: 0 16px 32px -8px oklch(0.22 0.02 240 / 0.12), 0 4px 12px -2px oklch(0.22 0.02 240 / 0.06);
+  --color-shadow-1: 0 1px 0 0 oklch(1 0 0 / 0.6) inset, 0 1px 2px 0 oklch(0 0 0 / 0.08);
+  --color-shadow-2: 0 1px 0 0 oklch(1 0 0 / 0.6) inset, 0 8px 24px -8px oklch(0 0 0 / 0.15);
+  
+  --shadow-sm: var(--color-shadow-1);
+  --shadow-md: var(--color-shadow-2);
 }
 
 * {
@@ -104,12 +139,11 @@
 }
 
 html,
-body,
-#root {
+body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--color-bg-0);
+  background: var(--color-page-bg);
   color: var(--color-text-1);
   font-family: var(--font-ui);
   font-size: 13px;
@@ -120,19 +154,29 @@ body,
   transition: background 0.18s;
 }
 
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .mono {
   font-family: var(--font-mono);
+  font-feature-settings: 'ss01', 'cv11';
 }
 
 /* ── Custom Window Chrome & Shell ────────────────────────────────── */
 
 .window {
-  width: 100vw;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
   overflow: hidden;
   background: var(--color-bg-0);
+  display: flex;
+  flex-direction: column;
 }
 
 .titlebar {
@@ -376,7 +420,7 @@ body,
   justify-content: center;
   gap: 6px;
   height: 28px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -702,18 +746,37 @@ body,
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Section heading (dim uppercase label used in all panels) ───────── */
+
+.section-h {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
+}
+
+/* ── Dim utility ─────────────────────────────────────────────────── */
+.dim {
+  color: var(--color-text-3);
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-2);
-  border-radius: 4px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-3);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }

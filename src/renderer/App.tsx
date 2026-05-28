@@ -1,8 +1,12 @@
 import { useEffect, useState, type JSX } from 'react'
 import { Setup } from './screens/Setup'
 import { DesignSystem } from './screens/DesignSystem'
+import { Copilot } from './screens/Copilot'
 import { Icon } from './components/Icon'
 import { useTheme } from './hooks/useTheme'
+import { useGlobalShortcut } from './hooks/useGlobalShortcut'
+import { useUIStore } from './stores/ui'
+import { useSessionStore } from './stores/session'
 import { WindowChrome, Titlebar, Traffic, Rail, RailButton } from './components/chrome'
 import { Button, Pill } from './components/ui'
 import type { DockerStatus } from '@shared/ipc'
@@ -14,17 +18,16 @@ function basename(p: string): string {
   return parts[parts.length - 1] || p
 }
 
-type ScreenName = 'main' | 'design-system'
-
 export function App(): JSX.Element {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ state: 'pending' })
   const [version, setVersion] = useState<string>('0.1.0')
-  const [bagPath, setBagPath] = useState<string | null>(null)
-  // Transient local screen state — replaced by zustand useUIStore in Phase 6.
-  // Only `design-system` is reachable today, via ⌘⇧D below.
-  const [screen, setScreen] = useState<ScreenName>('main')
+  const [devScreen, setDevScreen] = useState<'main' | 'design-system'>('main')
 
   const { theme, toggle: toggleTheme } = useTheme()
+  const { screen, setScreen, searchOpen, setSearchOpen } = useUIStore()
+  const { meta: sessionMeta, pendingPath, setPendingPath } = useSessionStore()
+
+  useGlobalShortcut()
 
   // Initial Docker status + version + subscribe to status changes.
   useEffect(() => {
@@ -35,6 +38,40 @@ export function App(): JSX.Element {
     return () => unsubscribe()
   }, [])
 
+  // Global drag-and-drop listener for MCAP/bag files
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      const files = e.dataTransfer?.files
+      if (files && files.length > 0) {
+        const file = files[0]
+        const lowerName = file.name.toLowerCase()
+        if (lowerName.endsWith('.bag') || lowerName.endsWith('.mcap') || lowerName.endsWith('.db3')) {
+          // Electron attaches the local absolute filesystem path to dropped files
+          const path = (file as any).path
+          if (path) {
+            setPendingPath(path)
+            setScreen('copilot')
+          }
+        }
+      }
+    }
+
+    window.addEventListener('dragover', handleDragOver)
+    window.addEventListener('drop', handleDrop)
+    return () => {
+      window.removeEventListener('dragover', handleDragOver)
+      window.removeEventListener('drop', handleDrop)
+    }
+  }, [setPendingPath, setScreen])
+
   // Dev-only ⌘⇧D / Ctrl+Shift+D toggles the DesignSystem gallery.
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -42,15 +79,15 @@ export function App(): JSX.Element {
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
         e.preventDefault()
-        setScreen((s) => (s === 'design-system' ? 'main' : 'design-system'))
+        setDevScreen((s) => (s === 'design-system' ? 'main' : 'design-system'))
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  if (import.meta.env.DEV && screen === 'design-system') {
-    return <DesignSystem onExit={() => setScreen('main')} />
+  if (import.meta.env.DEV && devScreen === 'design-system') {
+    return <DesignSystem onExit={() => setDevScreen('main')} />
   }
 
   const handleRetry = () => {
@@ -59,11 +96,31 @@ export function App(): JSX.Element {
     void window.datapilot.docker.retry()
   }
 
-  const pickBagFile = async () => {
-    if (!window.datapilot) return
-    const file = await window.datapilot.file.pickBag()
-    if (file) setBagPath(file)
-  }
+  const titleContent = sessionMeta ? (
+    <span>
+      <b>DataPilot</b> · {basename(sessionMeta.filename)} — {sessionMeta.robot}
+    </span>
+  ) : pendingPath ? (
+    <span>
+      <b>DataPilot</b> · {basename(pendingPath)} — Loading…
+    </span>
+  ) : (
+    <span>
+      <b>DataPilot</b> · No active session — Load a bag to begin
+    </span>
+  )
+
+  const themeButton = (
+    <Button
+      variant="ghost"
+      size="sm"
+      icon
+      onClick={toggleTheme}
+      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+    >
+      {theme === 'dark' ? <Icon.Sun size={13} /> : <Icon.Moon size={13} />}
+    </Button>
+  )
 
   // Render Setup screen on pending / error states.
   if (dockerStatus.state !== 'ready') {
@@ -71,25 +128,11 @@ export function App(): JSX.Element {
       <WindowChrome className="fade-in">
         <Titlebar
           left={<Traffic />}
-          center={
-            <span>
-              <b>DataPilot</b> · Setup
-            </span>
-          }
+          center={<span><b>DataPilot</b> · Setup</span>}
           right={
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon
-                onClick={toggleTheme}
-                title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-              >
-                {theme === 'dark' ? <Icon.Sun size={13} /> : <Icon.Moon size={13} />}
-              </Button>
-              <Pill size="sm" tone="ghost" mono>
-                v{version}
-              </Pill>
+              {themeButton}
+              <Pill size="sm" tone="ghost" mono>v{version}</Pill>
             </>
           }
         />
@@ -100,29 +143,15 @@ export function App(): JSX.Element {
     )
   }
 
-  // Ready: main dashboard placeholder. Real Copilot Workspace lands in Phase 6.
+  // Ready: render active screen.
   return (
     <WindowChrome className="fade-in">
       <Titlebar
         left={<Traffic />}
-        center={
-          bagPath ? (
-            <span><b>DataPilot</b> · {basename(bagPath)} — Loaded session</span>
-          ) : (
-            <span><b>DataPilot</b> · No active session — Load a bag to begin</span>
-          )
-        }
+        center={titleContent}
         right={
           <>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon
-              onClick={toggleTheme}
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            >
-              {theme === 'dark' ? <Icon.Sun size={13} /> : <Icon.Moon size={13} />}
-            </Button>
+            {themeButton}
             <Pill size="sm" tone="ghost" mono>v{version}</Pill>
             <Pill size="sm" tone="ok" swatch>local stack</Pill>
           </>
@@ -131,106 +160,127 @@ export function App(): JSX.Element {
 
       <div className="body">
         <Rail>
-          <RailButton icon={<Icon.Chat size={18} />} label="Copilot" active />
-          <RailButton icon={<Icon.Fleet size={18} />} label="Fleet" />
-          <RailButton icon={<Icon.Search size={18} />} label="Search" />
-          <RailButton icon={<Icon.Replay size={18} />} label="Replay" />
+          <RailButton
+            icon={<Icon.Chat size={18} />}
+            label="Copilot"
+            active={screen === 'copilot'}
+            onClick={() => setScreen('copilot')}
+          />
+          <RailButton
+            icon={<Icon.Fleet size={18} />}
+            label="Fleet"
+            active={screen === 'fleet'}
+            onClick={() => setScreen('fleet')}
+          />
+          <RailButton
+            icon={<Icon.Search size={18} />}
+            label="Search"
+            active={searchOpen}
+            onClick={() => setSearchOpen(true)}
+          />
+          <RailButton
+            icon={<Icon.Replay size={18} />}
+            label="Replay"
+            active={screen === 'replay'}
+            onClick={() => setScreen('replay')}
+          />
           <div className="rail-spacer" />
-          <RailButton icon={<Icon.Bot size={18} />} label="Agents & MCP" />
-          <RailButton icon={<Icon.Settings size={18} />} label="Settings" />
+          <RailButton
+            icon={<Icon.Bot size={18} />}
+            label="Agents & MCP"
+            active={screen === 'agents'}
+            onClick={() => setScreen('agents')}
+          />
+          <RailButton
+            icon={<Icon.Settings size={18} />}
+            label="Settings"
+            active={screen === 'settings'}
+            onClick={() => setScreen('settings')}
+          />
         </Rail>
 
-        <div
-          className="flex1"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 32,
-            background: 'var(--color-bg-0)',
-            textAlign: 'center',
-            gap: 24,
-          }}
-        >
+        {/* Copilot screen (includes CopilotPanel + Workspace) */}
+        {screen === 'copilot' && <Copilot />}
+
+        {/* Phase 7–11 screens: placeholder panels */}
+        {(screen === 'fleet' || screen === 'replay' || screen === 'agents' || screen === 'settings') && (
           <div
+            className="flex1 col"
             style={{
-              width: 64,
-              height: 64,
-              borderRadius: 16,
-              background: 'var(--color-accent-bg)',
-              border: '1px solid oklch(0.50 0.12 235 / 0.4)',
-              display: 'grid',
-              placeItems: 'center',
-              color: 'var(--color-accent)',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--color-text-3)',
+              fontSize: 13,
+              gap: 8,
             }}
           >
-            <Icon.File size={32} />
+            <Icon.Settings size={24} />
+            <span>
+              {screen === 'fleet' && 'Fleet Dashboard — Phase 7'}
+              {screen === 'replay' && 'Replay — Phase 8'}
+              {screen === 'agents' && 'Agents & MCP — Phase 9'}
+              {screen === 'settings' && 'Settings — Phase 11'}
+            </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480 }}>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: 'var(--color-text-0)' }}>
-              Local environment active
-            </h2>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-2)' }}>
-              The SQLite database, Neo4j knowledge graph, FastAPI engine, and 5 MCP workers are
-              connected and ready to ingest bags.
-            </p>
-          </div>
+        )}
 
-          <div className="row gap-3" style={{ marginTop: 8 }}>
-            <Button variant="primary" onClick={pickBagFile}>
-              <Icon.Upload size={14} /> Load ROS bag
-            </Button>
-            <Button onClick={() => setBagPath('/sample_bags/lidar_failure.mcap')}>
-              Load demo bag
-            </Button>
-          </div>
 
-          {bagPath && (
+
+        {/* Search overlay placeholder */}
+        {searchOpen && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 50,
+              background: 'oklch(0.08 0.01 240 / 0.65)',
+              backdropFilter: 'blur(8px)',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: '60px 80px',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--color-text-0)',
+            }}
+            onClick={() => setSearchOpen(false)}
+          >
             <div
-              className="row gap-3"
+              className="panel"
               style={{
-                marginTop: 16,
-                padding: '12px 16px',
-                borderRadius: 8,
+                padding: '24px 32px',
+                maxWidth: 400,
+                textAlign: 'center',
+                boxShadow: '0 20px 40px -15px oklch(0 0 0 / 0.7)',
+                borderColor: 'var(--color-border-2)',
                 background: 'var(--color-bg-1)',
-                border: '1px solid var(--color-border-1)',
-                maxWidth: 560,
-                width: '100%',
-                textAlign: 'left',
               }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <span
-                aria-hidden
-                className="pulse"
+              <div
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 50,
-                  background: 'var(--color-ok)',
-                  boxShadow: '0 0 8px var(--color-ok)',
-                  flexShrink: 0,
+                  width: 48,
+                  height: 48,
+                  borderRadius: 12,
+                  background: 'var(--color-accent-bg)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  color: 'var(--color-accent)',
+                  margin: '0 auto 16px',
+                  border: '1px solid oklch(0.50 0.12 235 / 0.3)',
                 }}
-              />
-              <div className="flex1" style={{ minWidth: 0 }}>
-                <div className="section-h" style={{ marginBottom: 2 }}>Loaded file</div>
-                <div
-                  className="mono"
-                  style={{
-                    fontSize: 13,
-                    color: 'var(--color-text-1)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={bagPath}
-                >
-                  {bagPath}
-                </div>
+              >
+                <Icon.Search size={22} />
               </div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Semantic Search</h3>
+              <p style={{ fontSize: 12, color: 'var(--color-text-2)', margin: '8px 0 20px', lineHeight: 1.4 }}>
+                Search past runs in natural language. This feature is coming in Phase 10. You can also trigger it using the <code className="mono" style={{ background: 'var(--color-bg-2)', padding: '2px 4px', borderRadius: 4 }}>⌘K</code> shortcut.
+              </p>
+              <Button size="sm" onClick={() => setSearchOpen(false)}>
+                Dismiss
+              </Button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </WindowChrome>
   )
