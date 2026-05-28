@@ -1,36 +1,39 @@
-import { useState, type JSX, type KeyboardEvent } from 'react'
-import { Icon } from '@renderer/components/Icon'
-import { useChatStore } from '@renderer/stores/chat'
-import { useChat } from '@renderer/hooks/useChat'
+import { useState, type JSX, type KeyboardEvent } from "react";
+import { Icon } from "@renderer/components/Icon";
+import { useChatStore } from "@renderer/stores/chat";
+import { useChat } from "@renderer/hooks/useChat";
 
 export function CommandBar(): JSX.Element {
-  const [input, setInput] = useState('')
-  const streaming = useChatStore((s) => s.streaming)
-  const { send } = useChat()
+  const [input, setInput] = useState("");
+  const streaming = useChatStore((s) => s.streaming);
+  const { send, stop } = useChat();
 
   const handleSend = () => {
-    const text = input.trim()
-    if (!text || streaming) return
-    setInput('')
-    send(text)
-  }
+    const text = input.trim();
+    if (!text || streaming) return;
+    setInput("");
+    send(text);
+  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault()
-      handleSend()
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      handleSend();
     }
-  }
+  };
 
   return (
-    <div style={{ padding: '8px 14px 14px', flexShrink: 0 }}>
-      <div className="col" style={{
-        background: 'var(--color-bg-3)',
-        border: '1px solid var(--color-border-2)',
-        borderRadius: 10,
-        padding: '10px 12px',
-        gap: 8,
-      }}>
+    <div style={{ padding: "8px 14px 14px", flexShrink: 0 }}>
+      <div
+        className="col"
+        style={{
+          background: "var(--color-bg-3)",
+          border: "1px solid var(--color-border-2)",
+          borderRadius: 10,
+          padding: "10px 12px",
+          gap: 8,
+        }}
+      >
         <textarea
           placeholder="Ask anything about this run, or paste a topic name…"
           value={input}
@@ -39,13 +42,13 @@ export function CommandBar(): JSX.Element {
           disabled={streaming}
           rows={2}
           style={{
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--color-text-0)',
-            fontFamily: 'var(--font-ui)',
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: "var(--color-text-0)",
+            fontFamily: "var(--font-ui)",
             fontSize: 13,
-            resize: 'none',
+            resize: "none",
             lineHeight: 1.45,
             opacity: streaming ? 0.6 : 1,
           }}
@@ -55,36 +58,42 @@ export function CommandBar(): JSX.Element {
             className="btn ghost icon sm"
             title="Voice input — not available yet"
             disabled
-            style={{ opacity: 0.35, cursor: 'not-allowed' }}
+            style={{ opacity: 0.35, cursor: "not-allowed" }}
           >
             <Icon.Mic size={13} />
           </button>
-          <button className="btn ghost icon sm" title="Attach (not available)" disabled>
+          <button
+            className="btn ghost icon sm"
+            title="Attach (not available)"
+            disabled
+          >
             <Icon.Upload size={13} />
           </button>
-          <span className="dim mono" style={{ fontSize: 10.5 }}>⌘↵ to send</span>
+          <span className="dim mono" style={{ fontSize: 10.5 }}>
+            ⌘↵ to send
+          </span>
           <div className="flex1" />
-          <button
-            className="btn primary sm"
-            onClick={handleSend}
-            disabled={streaming || !input.trim()}
-          >
-            {streaming ? (
-              <>
-                <span className="pulse" style={{ width: 12, height: 12, display: 'flex', alignItems: 'center' }}>
-                  <Icon.Activity size={12} />
-                </span>
-                Thinking…
-              </>
-            ) : (
-              <>
-                <Icon.Send size={12} />
-                Send
-              </>
-            )}
-          </button>
+          {streaming ? (
+            <button
+              className="btn danger sm"
+              onClick={stop}
+              title="Stop generating"
+            >
+              <Icon.Stop size={12} />
+              Stop
+            </button>
+          ) : (
+            <button
+              className="btn primary sm"
+              onClick={handleSend}
+              disabled={!input.trim()}
+            >
+              <Icon.Send size={12} />
+              Send
+            </button>
+          )}
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -3,74 +3,79 @@
  * All serializable — no JSX, no functions.
  */
 
-export type ScreenName = 'copilot' | 'agents' | 'settings'
-export type WorkspaceTab = 'timeline' | 'metrics' | 'map' | 'logs' | 'kgraph'
-export type SessionStatus = 'idle' | 'creating' | 'processing' | 'ready' | 'error'
+export type ScreenName = "copilot" | "agents" | "settings";
+export type WorkspaceTab = "timeline" | "metrics" | "map" | "logs" | "kgraph";
+export type SessionStatus =
+  | "idle"
+  | "creating"
+  | "processing"
+  | "ready"
+  | "error";
 
 export interface SessionMeta {
-  id: string
-  filename: string
-  robot: string
-  durationSeconds: number
-  totalMessages: number
-  topicsCount: number
-  status: SessionStatus
+  id: string;
+  filename: string;
+  robot: string;
+  durationSeconds: number;
+  totalMessages: number;
+  topicsCount: number;
+  status: SessionStatus;
 }
 
 export interface TimelineEvent {
-  t: number
-  type: 'log' | 'sensor' | 'anomaly'
-  sev: 'critical' | 'warning' | 'info'
-  topic: string
-  label: string
+  t: number;
+  type: "log" | "sensor" | "anomaly";
+  sev: "critical" | "warning" | "info";
+  topic: string;
+  label: string;
 }
 
 export interface TopicInfo {
-  name: string
-  type: string
-  hz: number
-  msgs: number
+  name: string;
+  type: string;
+  hz: number;
+  msgs: number;
 }
 
 export interface LogItem {
-  t: string
-  node: string
-  sev: 'ERROR' | 'WARN' | 'INFO' | 'DEBUG'
-  text: string
+  t: string;
+  node: string;
+  sev: "ERROR" | "WARN" | "INFO" | "DEBUG";
+  text: string;
 }
 
 export interface KGraphNode {
-  id: string
-  label: string
-  group: 'sensor' | 'fault' | 'state' | 'node' | 'outcome'
-  x: number
-  y: number
+  id: string;
+  label: string;
+  group: "sensor" | "fault" | "state" | "node" | "outcome";
+  x: number;
+  y: number;
 }
 
 export interface KGraphEdge {
-  source: string
-  target: string
+  source: string;
+  target: string;
 }
 
 export interface KGraphData {
-  nodes: KGraphNode[]
-  edges: KGraphEdge[]
+  nodes: KGraphNode[];
+  edges: KGraphEdge[];
 }
 
 export interface PlanStep {
-  label: string
-  done: boolean
-  active: boolean
+  label: string;
+  done: boolean;
+  active: boolean;
 }
 
 export interface Finding {
-  sev: 'critical' | 'warning' | 'info'
-  text: string
-  detail?: string
+  sev: "critical" | "warning" | "info";
+  text: string;
+  detail?: string;
 }
 
 export interface CausalItem {
-  text: string
+  text: string;
 }
 
 /**
@@ -79,27 +84,26 @@ export interface CausalItem {
  * Resolve to <Icon[name] size={12} /> at render time in ChatMessage.
  */
 export interface ChatAction {
-  iconName: string
-  label: string
-  target: WorkspaceTab
+  iconName: string;
+  label: string;
+  target: WorkspaceTab;
 }
 
-export type ChatRole = 'user' | 'assistant' | 'system'
+export type ChatRole = "user" | "assistant" | "system";
 
 export interface ChatMessage {
-  id: string
-  role: ChatRole
-  text?: string
-  time?: string
-  summary?: string
-  plan?: PlanStep[]
-  findings?: Finding[]
-  causal?: CausalItem[]
-  actions?: ChatAction[]
+  id: string;
+  role: ChatRole;
+  text?: string;
+  time?: string;
+  summary?: string;
+  plan?: PlanStep[];
+  findings?: Finding[];
+  causal?: CausalItem[];
+  actions?: ChatAction[];
   usage?: {
-    tokens_in: number
-    tokens_out: number
-    est_cost_usd?: number
-  }
+    tokens_in: number;
+    tokens_out: number;
+    est_cost_usd?: number;
+  };
 }
-

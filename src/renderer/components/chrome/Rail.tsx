@@ -1,11 +1,11 @@
-import type { JSX, ReactNode } from 'react'
-import { cn } from '@renderer/lib/utils'
+import type { JSX, ReactNode } from "react";
+import { cn } from "@renderer/lib/utils";
 
 interface RailProps {
-  children: ReactNode
+  children: ReactNode;
   /** Optional D-logo at the top of the rail (matches mock_design/app.jsx). */
-  logo?: ReactNode
-  className?: string
+  logo?: ReactNode;
+  className?: string;
 }
 
 /**
@@ -19,9 +19,9 @@ interface RailProps {
  */
 export function Rail({ children, logo, className }: RailProps): JSX.Element {
   return (
-    <nav className={cn('rail', className)} aria-label="Primary navigation">
+    <nav className={cn("rail", className)} aria-label="Primary navigation">
       {logo ?? <div className="rail-logo">D</div>}
       {children}
     </nav>
-  )
+  );
 }

@@ -1,21 +1,21 @@
-import type { JSX } from 'react'
-import { Pill } from './Pill'
+import type { JSX } from "react";
+import { Pill } from "./Pill";
 
-export type Severity = 'critical' | 'warning' | 'info' | 'success' | 'ghost'
+export type Severity = "critical" | "warning" | "info" | "success" | "ghost";
 
 interface SeverityDotProps {
-  sev: Severity
+  sev: Severity;
   /** Override displayed label. Defaults to the severity name. */
-  label?: string
+  label?: string;
 }
 
 const TONE_MAP = {
-  critical: 'danger',
-  warning: 'warn',
-  info: 'accent',
-  success: 'ok',
-  ghost: 'ghost',
-} as const
+  critical: "danger",
+  warning: "warn",
+  info: "accent",
+  success: "ok",
+  ghost: "ghost",
+} as const;
 
 /**
  * Severity pill with a colored swatch dot. Used inside chat findings,
@@ -28,5 +28,5 @@ export function SeverityDot({ sev, label }: SeverityDotProps): JSX.Element {
     <Pill size="sm" tone={TONE_MAP[sev]} swatch>
       {label ?? sev}
     </Pill>
-  )
+  );
 }

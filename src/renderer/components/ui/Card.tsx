@@ -1,7 +1,7 @@
-import { forwardRef, type HTMLAttributes } from 'react'
-import { cn } from '@renderer/lib/utils'
+import { forwardRef, type HTMLAttributes } from "react";
+import { cn } from "@renderer/lib/utils";
 
-export type CardProps = HTMLAttributes<HTMLDivElement>
+export type CardProps = HTMLAttributes<HTMLDivElement>;
 
 /**
  * Standard card surface (`.card` — bg-2, rounded 8px, 1px border).
@@ -11,5 +11,5 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
   { className, ...rest },
   ref,
 ) {
-  return <div ref={ref} className={cn('card', className)} {...rest} />
-})
+  return <div ref={ref} className={cn("card", className)} {...rest} />;
+});
