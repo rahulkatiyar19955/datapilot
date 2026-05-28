@@ -23,7 +23,7 @@ interface Provider {
 const PROVIDERS: Provider[] = [
   { id: 'anthropic', name: 'Claude (Anthropic)',        models: ['claude-opus-4', 'claude-sonnet-4.5', 'claude-haiku-4.5'], keyHint: 'sk-ant-…',  endpoint: 'https://api.anthropic.com',                  color: 'oklch(0.65 0.14 30)' },
   { id: 'openai',    name: 'OpenAI',                   models: ['gpt-5', 'gpt-5-mini', 'gpt-4.1'],                         keyHint: 'sk-…',      endpoint: 'https://api.openai.com/v1',                  color: 'oklch(0.65 0.14 150)' },
-  { id: 'google',    name: 'Gemini (Google)',           models: ['gemini-2.5-pro', 'gemini-2.5-flash'],                     keyHint: 'AIza…',     endpoint: 'https://generativelanguage.googleapis.com',  color: 'oklch(0.65 0.14 240)' },
+  { id: 'google',    name: 'Gemini (Google)',           models: ['gemini-3.5-flash (medium thinking)', 'gemini-3.5-flash (high thinking)', 'gemini-3.1-pro-preview'],                     keyHint: 'AIza…',     endpoint: 'https://generativelanguage.googleapis.com',  color: 'oklch(0.65 0.14 240)' },
   { id: 'ollama',    name: 'Ollama (local)',            models: ['llama-3.3-70b', 'qwen-2.5-coder-32b'],                    keyHint: '— none —',  endpoint: 'http://localhost:11434',                     color: 'oklch(0.65 0.14 300)' },
   { id: 'custom',    name: 'Custom (OpenAI-compatible)', models: [],                                                         keyHint: 'sk-…',      endpoint: 'https://…',                                  color: 'oklch(0.65 0.05 240)' },
 ]

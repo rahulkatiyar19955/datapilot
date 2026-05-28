@@ -26,7 +26,7 @@ DEFAULT_SPECIALIST_MODELS: dict[str, str] = {
     "RootCauseAnalyst":   "claude-sonnet-4-5-20250929",
     "AnomalyDetector":    "claude-sonnet-4-5-20250929",
     "PerformanceProfiler": "gpt-5",
-    "ReplayNarrator":     "gemini-2.5-pro",
+    "ReplayNarrator":     "gemini-3.1-pro-preview",
     "SafetyAuditor":      "claude-opus-4-1-20250805",
     "ReleaseComparator":  "claude-sonnet-4-5-20250929",
 }
@@ -37,9 +37,10 @@ DEFAULT_SPECIALIST_MODELS: dict[str, str] = {
 SUPERVISOR_CASCADE: list[tuple[str, str]] = [
     ("anthropic", "claude-haiku-4-5-20251001"),
     ("openai",    "gpt-5-mini"),
-    ("gemini",    "gemini-2.5-flash"),
+    ("gemini",    "gemini-3.5-flash"),
     ("ollama",    "llama3.2"),
 ]
+
 
 # Default composer model when none is configured.
 DEFAULT_COMPOSER_MODEL = "claude-sonnet-4-5-20250929"
