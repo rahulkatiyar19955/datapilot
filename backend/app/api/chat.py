@@ -215,6 +215,14 @@ async def chat(
                             plan = patch["plan"]
                             yield _format_sse("plan", {"plan": plan})
                             emitted_plan = True
+                            # Emit step-start for the first step immediately so the
+                            # UI shows "running…" from the beginning (not after the
+                            # first dispatcher update which has already advanced idx).
+                            if plan:
+                                yield _format_sse("step-start", {
+                                    "idx": 0,
+                                    "specialist": plan[0]["specialist"],
+                                })
                         elif node_name == "dispatcher":
                             # plan_idx advanced — the step at last_plan_idx just finished.
                             new_idx = int(patch.get("plan_idx", last_plan_idx))

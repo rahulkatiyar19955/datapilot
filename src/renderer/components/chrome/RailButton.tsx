@@ -1,27 +1,28 @@
-import type { JSX, ReactNode } from 'react'
-import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from '@renderer/lib/utils'
+import type { JSX, ReactNode } from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@renderer/lib/utils";
 
-const railButtonVariants = cva('rail-btn', {
+const railButtonVariants = cva("rail-btn", {
   variants: {
     active: {
-      true: 'active',
-      false: '',
+      true: "active",
+      false: "",
     },
   },
   defaultVariants: {
     active: false,
   },
-})
+});
 
 interface RailButtonProps
-  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'>,
+  extends
+    Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children">,
     VariantProps<typeof railButtonVariants> {
-  icon: ReactNode
+  icon: ReactNode;
   /** Accessible label; rendered as `title=` (hover tooltip). */
-  label: string
+  label: string;
   /** Renders a red badge dot in the top-right corner (e.g. alerts). */
-  badge?: boolean
+  badge?: boolean;
 }
 
 /**
@@ -42,7 +43,7 @@ export function RailButton({
 }: RailButtonProps): JSX.Element {
   return (
     <button
-      type={type ?? 'button'}
+      type={type ?? "button"}
       className={cn(railButtonVariants({ active }), className)}
       title={label}
       aria-label={label}
@@ -54,17 +55,17 @@ export function RailButton({
         <span
           aria-hidden
           style={{
-            position: 'absolute',
+            position: "absolute",
             top: 4,
             right: 4,
             width: 6,
             height: 6,
             borderRadius: 50,
-            background: 'var(--color-danger)',
-            boxShadow: '0 0 6px var(--color-danger)',
+            background: "var(--color-danger)",
+            boxShadow: "0 0 6px var(--color-danger)",
           }}
         />
       )}
     </button>
-  )
+  );
 }

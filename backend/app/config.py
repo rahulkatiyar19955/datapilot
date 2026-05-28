@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(None, env="OPENAI_API_KEY")
     anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
     gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
+    nvidia_api_key: Optional[str] = Field(None, env="NVIDIA_API_KEY")
     ollama_host: str = Field("http://host.docker.internal:11434", env="OLLAMA_HOST")
+    default_provider: Optional[str] = Field(None, env="DEFAULT_PROVIDER")
+    default_model: Optional[str] = Field(None, env="DEFAULT_MODEL")
 
     class Config:
         env_file = ".env"

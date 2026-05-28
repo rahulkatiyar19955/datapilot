@@ -1,54 +1,65 @@
-import type { JSX } from 'react'
-import { useSessionStore } from '@renderer/stores/session'
-import type { KGraphNode } from '@shared/types'
+import type { JSX } from "react";
+import { useSessionStore } from "@renderer/stores/session";
+import type { KGraphNode } from "@shared/types";
 
-const GROUP_COLOR: Record<KGraphNode['group'], string> = {
-  sensor: 'oklch(0.70 0.10 200)',
-  fault: 'var(--color-danger)',
-  state: 'var(--color-warn)',
-  node: 'var(--color-accent)',
-  outcome: 'var(--color-magenta)',
-}
+const GROUP_COLOR: Record<KGraphNode["group"], string> = {
+  sensor: "oklch(0.70 0.10 200)",
+  fault: "var(--color-danger)",
+  state: "var(--color-warn)",
+  node: "var(--color-accent)",
+  outcome: "var(--color-magenta)",
+};
 
-const GROUP_LABELS: Array<[KGraphNode['group'], string]> = [
-  ['sensor', 'Sensors'],
-  ['node', 'Nodes'],
-  ['state', 'States'],
-  ['fault', 'Faults'],
-  ['outcome', 'Outcomes'],
-]
+const GROUP_LABELS: Array<[KGraphNode["group"], string]> = [
+  ["sensor", "Sensors"],
+  ["node", "Nodes"],
+  ["state", "States"],
+  ["fault", "Faults"],
+  ["outcome", "Outcomes"],
+];
 
 export function KGraphView(): JSX.Element {
-  const kgraph = useSessionStore((s) => s.kgraph)
+  const kgraph = useSessionStore((s) => s.kgraph);
 
   if (!kgraph) {
     return (
       <div className="col flex1" style={{ minHeight: 0 }}>
         <div
           className="row gap-2"
-          style={{ padding: '10px 14px', borderBottom: '1px solid var(--color-border-1)' }}
+          style={{
+            padding: "10px 14px",
+            borderBottom: "1px solid var(--color-border-1)",
+          }}
         >
           <span className="section-h">Knowledge Graph</span>
         </div>
         <div
           className="flex1 col"
-          style={{ alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-3)', fontSize: 12 }}
+          style={{
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--color-text-3)",
+            fontSize: 12,
+          }}
         >
           No session loaded
         </div>
       </div>
-    )
+    );
   }
 
-  const { nodes, edges } = kgraph
-  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
+  const { nodes, edges } = kgraph;
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
 
   return (
     <div className="col flex1" style={{ minHeight: 0 }}>
       {/* Toolbar */}
       <div
         className="row gap-2"
-        style={{ padding: '10px 14px', borderBottom: '1px solid var(--color-border-1)' }}
+        style={{
+          padding: "10px 14px",
+          borderBottom: "1px solid var(--color-border-1)",
+        }}
       >
         <span className="section-h">Knowledge Graph</span>
         <span className="pill sm ghost mono">causal chain</span>
@@ -67,19 +78,29 @@ export function KGraphView(): JSX.Element {
       <div
         className="flex1"
         style={{
-          position: 'relative',
-          overflow: 'hidden',
-          background: 'var(--color-map-bg)',
+          position: "relative",
+          overflow: "hidden",
+          background: "var(--color-map-bg)",
         }}
       >
         <svg
           viewBox="0 0 700 460"
           preserveAspectRatio="xMidYMid meet"
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+          }}
         >
           <defs>
             {/* Dotted grid */}
-            <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+            <pattern
+              id="dots"
+              width="24"
+              height="24"
+              patternUnits="userSpaceOnUse"
+            >
               <circle cx="2" cy="2" r="1" fill="var(--color-grid)" />
             </pattern>
             {/* Arrow marker */}
@@ -101,10 +122,10 @@ export function KGraphView(): JSX.Element {
 
           {/* Edges */}
           {edges.map((e, i) => {
-            const A = byId[e.source]
-            const B = byId[e.target]
-            if (!A || !B) return null
-            const isDashed = e.source === 'sensor' || e.source === 'dropout'
+            const A = byId[e.source];
+            const B = byId[e.target];
+            if (!A || !B) return null;
+            const isDashed = e.source === "sensor" || e.source === "dropout";
             return (
               <line
                 key={i}
@@ -115,17 +136,21 @@ export function KGraphView(): JSX.Element {
                 stroke="var(--color-border-2)"
                 strokeWidth={1.4}
                 markerEnd="url(#arrow)"
-                strokeDasharray={isDashed ? '4 3' : undefined}
+                strokeDasharray={isDashed ? "4 3" : undefined}
                 opacity={0.8}
               />
-            )
+            );
           })}
 
           {/* Nodes */}
           {nodes.map((n) => (
             <g key={n.id} transform={`translate(${n.x} ${n.y})`}>
               <rect
-                x="-65" y="-18" width="130" height="36" rx="6"
+                x="-65"
+                y="-18"
+                width="130"
+                height="36"
+                rx="6"
                 fill="var(--color-bg-2)"
                 stroke={GROUP_COLOR[n.group]}
                 strokeWidth="1.5"
@@ -149,21 +174,29 @@ export function KGraphView(): JSX.Element {
           <div
             className="panel"
             style={{
-              position: 'absolute',
+              position: "absolute",
               bottom: 14,
               left: 14,
-              padding: '10px 12px',
+              padding: "10px 12px",
               maxWidth: 320,
             }}
           >
-            <div className="section-h" style={{ marginBottom: 4 }}>Causal graph</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-1)', lineHeight: 1.5 }}>
-              {nodes.length} nodes · {edges.length} causal edges extracted from this session.
+            <div className="section-h" style={{ marginBottom: 4 }}>
+              Causal graph
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: "var(--color-text-1)",
+                lineHeight: 1.5,
+              }}
+            >
+              {nodes.length} nodes · {edges.length} causal edges extracted from
+              this session.
             </div>
           </div>
         )}
       </div>
     </div>
-  )
+  );
 }
-

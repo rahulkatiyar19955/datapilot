@@ -71,8 +71,13 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
     session_id: str = args["session_id"]
     query: str = args["query"]
     k: int = int(args.get("k", 8))
-    severity_filter: list[str] = args.get("severity_filter") or []
-    topic_filter: list[str] = args.get("topic_filter") or []
+    def _to_list(v: object) -> list:
+        if isinstance(v, str):
+            return [v] if v else []
+        return list(v) if v else []
+
+    severity_filter: list[str] = _to_list(args.get("severity_filter"))
+    topic_filter: list[str] = _to_list(args.get("topic_filter"))
     time_window: list[float] | None = args.get("time_window_s")
     expand: bool = args.get("expand_neighbors", True)
 

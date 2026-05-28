@@ -1,33 +1,34 @@
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from 'react'
-import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from '@renderer/lib/utils'
+import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@renderer/lib/utils";
 
-const inputContainerVariants = cva('input', {
+const inputContainerVariants = cva("input", {
   variants: {
     size: {
-      md: '',
-      sm: '',
+      md: "",
+      sm: "",
     },
   },
   defaultVariants: {
-    size: 'md',
+    size: "md",
   },
-})
+});
 
 interface InputProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>,
+  extends
+    Omit<InputHTMLAttributes<HTMLInputElement>, "size">,
     VariantProps<typeof inputContainerVariants> {
   /** Leading slot for an icon (rendered before the native `<input>`). */
-  leading?: ReactNode
+  leading?: ReactNode;
   /** Trailing slot — most commonly a ⌘K hint `<span>`. */
-  trailing?: ReactNode
+  trailing?: ReactNode;
   /**
    * Override classes on the inner native `<input>`. The outer-wrapper
    * className is set via the standard `className` prop, matching the
    * convention every other primitive uses (className positions/sizes the
    * component as a whole; consumers rarely need to restyle the bare input).
    */
-  inputClassName?: string
+  inputClassName?: string;
 }
 
 /**
@@ -46,9 +47,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 ) {
   // Size 'sm' tightens the wrapper (height 26px, smaller font).
   const sizeStyle =
-    size === 'sm'
-      ? { height: 26, padding: '0 8px', fontSize: 12 }
-      : undefined
+    size === "sm" ? { height: 26, padding: "0 8px", fontSize: 12 } : undefined;
 
   return (
     <div
@@ -59,5 +58,5 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       <input ref={ref} className={cn(inputClassName)} {...rest} />
       {trailing}
     </div>
-  )
-})
+  );
+});

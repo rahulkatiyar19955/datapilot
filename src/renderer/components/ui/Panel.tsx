@@ -1,7 +1,7 @@
-import { forwardRef, type HTMLAttributes } from 'react'
-import { cn } from '@renderer/lib/utils'
+import { forwardRef, type HTMLAttributes } from "react";
+import { cn } from "@renderer/lib/utils";
 
-export type PanelProps = HTMLAttributes<HTMLDivElement>
+export type PanelProps = HTMLAttributes<HTMLDivElement>;
 
 /**
  * Outer panel surface (`.panel` — bg-1, larger container than card).
@@ -11,5 +11,5 @@ export const Panel = forwardRef<HTMLDivElement, PanelProps>(function Panel(
   { className, ...rest },
   ref,
 ) {
-  return <div ref={ref} className={cn('panel', className)} {...rest} />
-})
+  return <div ref={ref} className={cn("panel", className)} {...rest} />;
+});

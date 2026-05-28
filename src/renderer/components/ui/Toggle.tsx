@@ -1,13 +1,13 @@
-import type { JSX } from 'react'
-import { cn } from '@renderer/lib/utils'
+import type { JSX } from "react";
+import { cn } from "@renderer/lib/utils";
 
 interface ToggleProps {
-  on: boolean
-  onChange: (next: boolean) => void
+  on: boolean;
+  onChange: (next: boolean) => void;
   /** Accessible label (passed to aria-label since the toggle has no visible text). */
-  label?: string
-  disabled?: boolean
-  className?: string
+  label?: string;
+  disabled?: boolean;
+  className?: string;
 }
 
 /**
@@ -18,7 +18,13 @@ interface ToggleProps {
  * geometry is highly specific (knob translation) and only ever appears as
  * a single primitive.
  */
-export function Toggle({ on, onChange, label, disabled, className }: ToggleProps): JSX.Element {
+export function Toggle({
+  on,
+  onChange,
+  label,
+  disabled,
+  className,
+}: ToggleProps): JSX.Element {
   return (
     <button
       type="button"
@@ -32,11 +38,11 @@ export function Toggle({ on, onChange, label, disabled, className }: ToggleProps
         width: 32,
         height: 18,
         borderRadius: 10,
-        background: on ? 'var(--color-accent)' : 'var(--color-bg-4)',
-        border: `1px solid ${on ? 'var(--color-accent)' : 'var(--color-border-2)'}`,
-        position: 'relative',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        transition: 'background 0.15s, border-color 0.15s',
+        background: on ? "var(--color-accent)" : "var(--color-bg-4)",
+        border: `1px solid ${on ? "var(--color-accent)" : "var(--color-border-2)"}`,
+        position: "relative",
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "background 0.15s, border-color 0.15s",
         padding: 0,
         opacity: disabled ? 0.5 : 1,
       }}
@@ -44,17 +50,17 @@ export function Toggle({ on, onChange, label, disabled, className }: ToggleProps
       <span
         aria-hidden
         style={{
-          position: 'absolute',
+          position: "absolute",
           top: 1,
           left: on ? 15 : 1,
           width: 14,
           height: 14,
           borderRadius: 50,
-          background: 'var(--color-bg-0)',
-          boxShadow: '0 1px 2px oklch(0 0 0 / 0.4)',
-          transition: 'left 0.15s',
+          background: "var(--color-bg-0)",
+          boxShadow: "0 1px 2px oklch(0 0 0 / 0.4)",
+          transition: "left 0.15s",
         }}
       />
     </button>
-  )
+  );
 }

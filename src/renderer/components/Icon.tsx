@@ -53,6 +53,7 @@ import {
   Settings,
   Share2,
   Sparkles,
+  Square,
   Sun,
   Tag,
   Terminal,
@@ -61,7 +62,7 @@ import {
   Wifi,
   X,
   ZoomIn,
-} from 'lucide-react'
+} from "lucide-react";
 
 export const Icon = {
   // Rail / nav
@@ -81,6 +82,7 @@ export const Icon = {
   Plus,
   X,
   Send,
+  Stop: Square,
   Mic,
   Upload,
   Download,
@@ -130,6 +132,6 @@ export const Icon = {
   EyeOff,
   Copy,
   Trash: Trash2,
-} as const
+} as const;
 
-export type IconName = keyof typeof Icon
+export type IconName = keyof typeof Icon;

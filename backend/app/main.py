@@ -24,6 +24,18 @@ from app.services.neo4j_client import neo4j_client
 async def lifespan(_app: FastAPI):
     # Startup: initialize local SQLite schema (create-if-not-exists).
     await init_db()
+    # Load per-specialist model overrides from SQLite into the in-memory store.
+    try:
+        from app.db_sqlite import AsyncSessionLocal
+        from app.models import AgentModelRecord
+        from app.llm.router import set_specialist_override
+        from sqlalchemy import select
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(select(AgentModelRecord))).scalars().all()
+            for row in rows:
+                set_specialist_override(row.specialist, row.model_id)
+    except Exception:
+        pass  # Non-fatal — fresh installs have no overrides yet
     yield
     # Shutdown: close the shared Neo4j driver so its connection pool
     # releases sockets back to the OS rather than relying on GC.

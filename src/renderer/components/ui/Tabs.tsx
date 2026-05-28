@@ -1,9 +1,14 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, JSX, ReactNode } from 'react'
-import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from '@renderer/lib/utils'
+import type {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  JSX,
+  ReactNode,
+} from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@renderer/lib/utils";
 
 interface TabsProps extends HTMLAttributes<HTMLDivElement> {
-  children: ReactNode
+  children: ReactNode;
 }
 
 /**
@@ -12,30 +17,31 @@ interface TabsProps extends HTMLAttributes<HTMLDivElement> {
  */
 export function Tabs({ children, className, ...rest }: TabsProps): JSX.Element {
   return (
-    <div role="tablist" className={cn('tabs', className)} {...rest}>
+    <div role="tablist" className={cn("tabs", className)} {...rest}>
       {children}
     </div>
-  )
+  );
 }
 
-const tabVariants = cva('tab', {
+const tabVariants = cva("tab", {
   variants: {
     active: {
-      true: 'active',
-      false: '',
+      true: "active",
+      false: "",
     },
   },
   defaultVariants: {
     active: false,
   },
-})
+});
 
 interface TabProps
-  extends ButtonHTMLAttributes<HTMLButtonElement>,
+  extends
+    ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof tabVariants> {
-  icon?: ReactNode
+  icon?: ReactNode;
   /** Optional numeric count badge rendered after the label. */
-  count?: number | null
+  count?: number | null;
 }
 
 export function Tab({
@@ -49,7 +55,7 @@ export function Tab({
 }: TabProps): JSX.Element {
   return (
     <button
-      type={type ?? 'button'}
+      type={type ?? "button"}
       role="tab"
       aria-selected={active ?? false}
       className={cn(tabVariants({ active }), className)}
@@ -59,5 +65,5 @@ export function Tab({
       {children}
       {count != null && <span className="count">{count}</span>}
     </button>
-  )
+  );
 }

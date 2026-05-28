@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useState, type JSX } from "react";
 
 /**
  * Painted clones of macOS traffic-light dots, rendered on Windows / Linux
@@ -10,31 +10,33 @@ import { useEffect, useState, type JSX } from 'react'
  * dev platform — and is invisible on the others until the swap).
  */
 export function Traffic(): JSX.Element {
-  const [platform, setPlatform] = useState<NodeJS.Platform | 'unknown'>('unknown')
+  const [platform, setPlatform] = useState<NodeJS.Platform | "unknown">(
+    "unknown",
+  );
 
   useEffect(() => {
     // Guard explicitly: `a?.b?.c?.()` returns `undefined` (not a promise) when
     // any link in the chain is missing — `.then()` on that would throw a
     // TypeError. Bail out cleanly when the preload bridge isn't installed
     // (browser dev viewport, tests, DesignSystem-only renders).
-    const platformFn = window.datapilot?.app?.platform
-    if (typeof platformFn !== 'function') {
-      setPlatform('unknown')
-      return
+    const platformFn = window.datapilot?.app?.platform;
+    if (typeof platformFn !== "function") {
+      setPlatform("unknown");
+      return;
     }
     void platformFn()
       .then((p) => setPlatform(p))
-      .catch(() => setPlatform('unknown'))
-  }, [])
+      .catch(() => setPlatform("unknown"));
+  }, []);
 
   // If we are in a web browser (e.g., standard Chrome/Safari dev viewport),
   // window.datapilot is undefined. We show simulated traffic lights so they
   // can be inspected and styled on macOS.
-  const isBrowser = typeof window === 'undefined' || !window.datapilot
+  const isBrowser = typeof window === "undefined" || !window.datapilot;
 
   // On macOS in Electron, the OS draws the native buttons — render a spacer.
-  if (platform === 'darwin' || (platform === 'unknown' && !isBrowser)) {
-    return <div style={{ width: 76, height: 16 }} aria-hidden />
+  if (platform === "darwin" || (platform === "unknown" && !isBrowser)) {
+    return <div style={{ width: 76, height: 16 }} aria-hidden />;
   }
 
   return (
@@ -43,5 +45,5 @@ export function Traffic(): JSX.Element {
       <span className="dot yellow" />
       <span className="dot green" />
     </div>
-  )
+  );
 }
