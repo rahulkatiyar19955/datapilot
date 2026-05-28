@@ -324,61 +324,67 @@ class IngestionParser:
 
         with open(filepath, "rb") as f:
             reader = make_reader(f)
-            # Reconstruct catalog
-            for topic, schema in reader.get_summary().channels.values():
-                topics_dict[topic.topic] = {
-                    "name": topic.topic,
-                    "hz": 10.0, # default estimate
-                    "type": schema.name,
-                    "msgs": 0
+            # Build topic catalog from the MCAP summary.
+            # summary.channels is dict[int, Channel]; summary.schemas is dict[int, Schema].
+            summary = reader.get_summary()
+            for channel in summary.channels.values():
+                schema = summary.schemas.get(channel.schema_id)
+                type_name = schema.name if schema else "unknown"
+                topics_dict[channel.topic] = {
+                    "name": channel.topic,
+                    "hz": 10.0,  # estimated; real Hz requires timestamp analysis
+                    "type": type_name,
+                    "msgs": 0,
                 }
 
-            # Reconstruct logs from /rosout
-            for msg_info in read_ros2_messages(filepath):
-                topic = msg_info.channel.topic
-                msg = msg_info.ros_msg
-                timestamp = msg_info.log_time / 1e9 # in seconds
+        # Second pass: iterate decoded ROS 2 messages for /rosout and /tf only.
+        # read_ros2_messages reopens the file internally.
+        DECODE_TOPICS = {"/rosout", "/tf", "/tf_static"}
+        sev_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
 
-                if start_time is None:
-                    start_time = timestamp
-                end_time = timestamp
+        for msg_info in read_ros2_messages(filepath):
+            topic = msg_info.channel.topic
+            timestamp = msg_info.log_time / 1e9  # nanoseconds → seconds
 
-                if topic in topics_dict:
-                    topics_dict[topic]["msgs"] += 1
+            if start_time is None:
+                start_time = timestamp
+            end_time = timestamp
 
-                # Parse /rosout message
-                if topic == "/rosout":
-                    node = getattr(msg, "name", "unknown")
-                    msg_text = getattr(msg, "msg", "")
-                    level_int = getattr(msg, "level", 20)
-                    
-                    # Map ROS 2 levels
-                    sev_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
-                    sev = sev_map.get(level_int, "INFO")
-                    
-                    time_str = str(timedelta(seconds=timestamp - start_time))
-                    logs.append({
-                        "id": f"l_{len(logs) + 1}",
-                        "t": time_str,
-                        "node": node,
-                        "sev": sev,
-                        "text": msg_text,
-                        "topic": "/rosout"
+            # Count every message regardless of topic
+            if topic in topics_dict:
+                topics_dict[topic]["msgs"] += 1
+
+            # Only decode messages we actually need
+            if topic not in DECODE_TOPICS:
+                continue
+
+            msg = msg_info.ros_msg
+
+            if topic == "/rosout":
+                node = getattr(msg, "name", "unknown")
+                msg_text = getattr(msg, "msg", "")
+                level_int = getattr(msg, "level", 20)
+                sev = sev_map.get(level_int, "INFO")
+                time_str = str(timedelta(seconds=timestamp - start_time))
+                logs.append({
+                    "id": f"l_{len(logs) + 1}",
+                    "t": time_str,
+                    "node": node,
+                    "sev": sev,
+                    "text": msg_text,
+                    "topic": "/rosout",
+                })
+                if sev in ["WARN", "ERROR", "FATAL"]:
+                    timeline_events.append({
+                        "t": float(timestamp - start_time),
+                        "type": "log",
+                        "sev": sev.lower(),
+                        "topic": topic,
+                        "label": msg_text[:40],
                     })
 
-                    # If warning or error, push to timeline
-                    if sev in ["WARN", "ERROR", "FATAL"]:
-                        timeline_events.append({
-                            "t": float(timestamp - start_time),
-                            "type": "log",
-                            "sev": sev.lower(),
-                            "topic": topic,
-                            "label": msg_text[:40]
-                        })
-
-                # Parse TF messages
-                if topic in ["/tf", "/tf_static"]:
-                    self.tf_parser.parse_tf_message(msg)
+            elif topic in ["/tf", "/tf_static"]:
+                self.tf_parser.parse_tf_message(msg)
 
         dur = (end_time - start_time) if start_time and end_time else 0.0
 
@@ -411,44 +417,55 @@ class IngestionParser:
         start_time = None
         end_time = None
 
+        DECODE_TOPICS = {"/rosout", "/tf", "/tf_static"}
+        sev_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
+
         with Reader(filepath) as reader:
+            # Pre-populate topic catalog from connection metadata so all topics
+            # appear even if we don't decode every message.
+            for connection in reader.connections:
+                if connection.topic not in topics_dict:
+                    topics_dict[connection.topic] = {
+                        "name": connection.topic,
+                        "hz": 10.0,
+                        "type": connection.msgtype,
+                        "msgs": 0,
+                    }
+
             for connection, timestamp, rawdata in reader.messages():
                 topic = connection.topic
-                msgtype = connection.msgtype
-                msg = deserialize_cdr(rawdata, msgtype)
-                
                 t_sec = timestamp / 1e9
+
                 if start_time is None:
                     start_time = t_sec
                 end_time = t_sec
 
-                if topic not in topics_dict:
-                    topics_dict[topic] = {
-                        "name": topic,
-                        "hz": 10.0,
-                        "type": msgtype,
-                        "msgs": 0
-                    }
                 topics_dict[topic]["msgs"] += 1
+
+                # Only deserialize messages we actually need to analyse
+                if topic not in DECODE_TOPICS:
+                    continue
+
+                try:
+                    msg = deserialize_cdr(rawdata, connection.msgtype)
+                except Exception:
+                    continue
 
                 if topic == "/rosout":
                     node = getattr(msg, "name", "unknown")
                     msg_text = getattr(msg, "msg", "")
                     level_int = getattr(msg, "level", 20)
-                    
-                    sev_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
                     sev = sev_map.get(level_int, "INFO")
-                    
                     logs.append({
                         "id": f"l_{len(logs) + 1}",
                         "t": str(timedelta(seconds=t_sec - start_time)),
                         "node": node,
                         "sev": sev,
                         "text": msg_text,
-                        "topic": "/rosout"
+                        "topic": "/rosout",
                     })
-                
-                if topic in ["/tf", "/tf_static"]:
+
+                elif topic in ["/tf", "/tf_static"]:
                     self.tf_parser.parse_tf_message(msg)
 
         dur = (end_time - start_time) if start_time and end_time else 0.0
