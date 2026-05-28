@@ -100,7 +100,7 @@ class GeminiClient:
 
         if self.thinking_level:
             generation_config["thinking_config"] = {
-                "thinking_level": self.thinking_level
+                "thinking_budget": 2048 if self.thinking_level == "HIGH" else 1024
             }
 
         model = self._genai.GenerativeModel(
