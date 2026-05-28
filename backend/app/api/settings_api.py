@@ -175,6 +175,8 @@ async def update_key(payload: KeyUpdateRequest):
         settings.gemini_api_key = key or None
     elif provider == "nvidia":
         settings.nvidia_api_key = key or None
+    elif provider == "default_provider":
+        settings.default_provider = key or None
 
     return {"status": "success", "message": f"Updated API key for {provider}"}
 

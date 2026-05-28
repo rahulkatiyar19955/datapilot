@@ -37,8 +37,8 @@ DEFAULT_SPECIALIST_MODELS: dict[str, str] = {
 SUPERVISOR_CASCADE: list[tuple[str, str]] = [
     ("anthropic", "claude-haiku-4-5-20251001"),
     ("openai",    "gpt-5-mini"),
-    ("gemini",    "gemini-3.5-flash"),
     ("nvidia",    "meta/llama-3.3-70b-instruct"),
+    ("gemini",    "gemini-3.5-flash"),
     ("ollama",    "llama3.2"),
 ]
 
@@ -128,7 +128,12 @@ class LLMRouter:
         return _build_client(provider, model_id)
 
     def for_supervisor(self) -> LLMClient:
-        """Cheap-fast model selected from the cascade; never user-pickable."""
+        """Cheap-fast model selected from the cascade; prefers the user's default provider."""
+        preferred = settings.default_provider
+        if preferred and _provider_key_present(preferred):
+            for provider, model_id in SUPERVISOR_CASCADE:
+                if provider == preferred:
+                    return _build_client(provider, model_id)
         for provider, model_id in SUPERVISOR_CASCADE:
             if _provider_key_present(provider):
                 return _build_client(provider, model_id)
@@ -145,7 +150,13 @@ class LLMRouter:
         return self.for_supervisor()
 
     def _fallback_for_role(self, preferred_provider: str, _name: str) -> LLMClient:
-        """When a specialist's preferred provider has no key, walk the cascade."""
+        """When a specialist's preferred provider has no key, walk the cascade.
+        Tries the user's default_provider before the hardcoded order."""
+        default = settings.default_provider
+        if default and default != preferred_provider and _provider_key_present(default):
+            for provider, model_id in SUPERVISOR_CASCADE:
+                if provider == default:
+                    return _build_client(provider, model_id)
         for provider, model_id in SUPERVISOR_CASCADE:
             if provider == preferred_provider:
                 continue
