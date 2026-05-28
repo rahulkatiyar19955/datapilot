@@ -273,3 +273,16 @@ export async function testApiKey(
     endpoint,
   })
 }
+
+export async function fetchProviderModels(
+  provider: string,
+  key: string,
+  endpoint?: string,
+): Promise<string[]> {
+  return post<string[]>('/api/settings/models', {
+    provider,
+    key,
+    endpoint,
+  })
+}
+

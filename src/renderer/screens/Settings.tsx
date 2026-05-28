@@ -202,6 +202,7 @@ function KeyInput({
   onModelChange,
   customEndpoint,
   onEndpointChange,
+  onRefreshModels,
 }: {
   provider: Provider
   value: string
@@ -213,6 +214,7 @@ function KeyInput({
   onModelChange?: (v: string) => void
   customEndpoint?: string
   onEndpointChange?: (v: string) => void
+  onRefreshModels?: (models: string[]) => void
 }): JSX.Element {
   const [reveal, setReveal] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -247,6 +249,28 @@ function KeyInput({
     } catch (err: any) {
       setLocalStatus('error')
       setErrorMsg(err.message || 'Verification failed')
+    }
+  }
+
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    if (!value && provider.id !== 'ollama') {
+      alert(`Cannot refresh models: No credentials configured for ${provider.name}.`)
+      return
+    }
+    setRefreshing(true)
+    try {
+      const endpoint = provider.id === 'custom' ? customEndpoint : provider.endpoint
+      const fetchedModels = await api.fetchProviderModels(provider.id, value, endpoint)
+      if (onRefreshModels) {
+        onRefreshModels(fetchedModels)
+      }
+      alert(`Successfully fetched ${fetchedModels.length} models for ${provider.name}.`)
+    } catch (err: any) {
+      alert(`Failed to refresh models: ${err.message || err}`)
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -364,13 +388,17 @@ function KeyInput({
           />
           {localStatus === 'testing' ? 'Testing...' : 'Test'}
         </button>
-        {provider.models.length > 0 && (
+        {provider.id !== 'custom' && (
           <button 
             className="btn ghost sm"
-            onClick={() => alert('Model definitions refreshed successfully.')}
+            onClick={handleRefresh}
+            disabled={refreshing}
           >
-            <Icon.Download size={11} />
-            Refresh models
+            <Icon.Download 
+              size={11} 
+              className={refreshing ? 'spin' : ''} 
+            />
+            {refreshing ? 'Refreshing...' : 'Refresh models'}
           </button>
         )}
         <div className="flex1" />
@@ -507,6 +535,8 @@ function ModelsSection(): JSX.Element {
     setApiKey,
   } = useSettingsStore()
 
+  const [dynamicModels, setDynamicModels] = useState<Record<string, string[]>>({})
+
   const statusFor = (id: string): 'connected' | 'not_set' | 'error' => {
     if (id === 'ollama') return 'connected'
     if (!apiKeys[id]) return 'not_set'
@@ -514,6 +544,7 @@ function ModelsSection(): JSX.Element {
   }
 
   const activeProvider = PROVIDERS.find((p) => p.id === defaultProvider) || PROVIDERS[0]
+  const activeProviderModels = dynamicModels[activeProvider.id] || activeProvider.models
 
   return (
     <>
@@ -528,16 +559,17 @@ function ModelsSection(): JSX.Element {
                 const prov = PROVIDERS.find((p) => p.name === name)
                 if (prov) {
                   setSetting('defaultProvider', prov.id)
-                  if (prov.models.length > 0) {
-                    setSetting('defaultModel', prov.models[0])
+                  const provModels = dynamicModels[prov.id] || prov.models
+                  if (provModels.length > 0) {
+                    setSetting('defaultModel', provModels[0])
                   }
                 }
               }}
             />
-            {activeProvider.models.length > 0 && (
+            {activeProviderModels.length > 0 && (
               <FieldSelect
                 label=""
-                options={activeProvider.models}
+                options={activeProviderModels}
                 value={defaultModel}
                 onChange={(model) => setSetting('defaultModel', model)}
               />
@@ -562,26 +594,35 @@ function ModelsSection(): JSX.Element {
         title="API keys"
         hint="Stored encrypted in your OS keychain. Never sent to DataPilot servers."
       >
-        {PROVIDERS.map((p) => (
-          <KeyInput
-            key={p.id}
-            provider={p}
-            value={apiKeys[p.id] ?? ''}
-            isDefault={defaultProvider === p.id}
-            onSetDefault={() => {
-              setSetting('defaultProvider', p.id)
-              if (p.models.length > 0) {
-                setSetting('defaultModel', p.models[0])
-              }
-            }}
-            onChange={(v) => setApiKey(p.id, v)}
-            status={statusFor(p.id)}
-            defaultModel={defaultModel}
-            onModelChange={(m) => setSetting('defaultModel', m)}
-            customEndpoint={p.id === 'custom' ? defaultModel : undefined}
-            onEndpointChange={(v) => p.id === 'custom' && setSetting('defaultModel', v)}
-          />
-        ))}
+        {PROVIDERS.map((p) => {
+          const currentModels = dynamicModels[p.id] || p.models
+          return (
+            <KeyInput
+              key={p.id}
+              provider={{ ...p, models: currentModels }}
+              value={apiKeys[p.id] ?? ''}
+              isDefault={defaultProvider === p.id}
+              onSetDefault={() => {
+                setSetting('defaultProvider', p.id)
+                if (currentModels.length > 0) {
+                  setSetting('defaultModel', currentModels[0])
+                }
+              }}
+              onChange={(v) => setApiKey(p.id, v)}
+              status={statusFor(p.id)}
+              defaultModel={defaultModel}
+              onModelChange={(m) => setSetting('defaultModel', m)}
+              customEndpoint={p.id === 'custom' ? defaultModel : undefined}
+              onEndpointChange={(v) => p.id === 'custom' && setSetting('defaultModel', v)}
+              onRefreshModels={(fetched) => {
+                setDynamicModels((prev) => ({ ...prev, [p.id]: fetched }))
+                if (fetched.length > 0 && !fetched.includes(defaultModel)) {
+                  setSetting('defaultModel', fetched[0])
+                }
+              }}
+            />
+          )
+        })}
         <button 
           className="btn ghost sm" 
           style={{ marginTop: 4 }}
