@@ -442,9 +442,9 @@ class DockerOrchestrator {
       // Wait for FastAPI backend liveness check
       console.log('Waiting for Backend to become healthy...')
       this.setStatus({ state: 'pending', progress: 85, step: 'Waiting for Backend API to start…' })
-      const backendHealthy = await this.pollLiveness('http://localhost:8000/health', 15000)
+      const backendHealthy = await this.pollLiveness('http://localhost:8000/health', 60000)
       if (!backendHealthy) {
-        throw new Error('FastAPI backend failed to become healthy within 15 seconds.')
+        throw new Error('FastAPI backend failed to become healthy within 60 seconds.')
       }
 
       // Start the 5 MCP Workers in parallel
