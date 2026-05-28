@@ -5,6 +5,7 @@ import { useTheme } from '@renderer/hooks/useTheme'
 import type { Theme } from '@renderer/hooks/useTheme'
 import { useSettingsStore, ACCENT_PRESETS } from '@renderer/stores/settings'
 import * as api from '@renderer/services/api'
+import type { StorageUsage } from '@shared/ipc'
 
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,19 @@ const SECTIONS = [
   { id: 'shortcuts', label: 'Shortcuts',          icon: <Icon.Code size={14} /> },
   { id: 'about',     label: 'About',              icon: <Icon.Sparkles size={14} /> },
 ] as const
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIdx = 0
+  while (value >= 1024 && unitIdx < units.length - 1) {
+    value /= 1024
+    unitIdx += 1
+  }
+  const precision = value >= 10 ? 1 : 2
+  return `${value.toFixed(precision)} ${units[unitIdx]}`
+}
 
 type SectionId = (typeof SECTIONS)[number]['id']
 
@@ -759,15 +773,37 @@ function StorageSection(): JSX.Element {
     setSetting,
   } = useSettingsStore()
 
-  const [cleared, setCleared] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [loadingUsage, setLoadingUsage] = useState(false)
+  const [cacheUsage, setCacheUsage] = useState<StorageUsage | null>(null)
+  const [archiveUsage, setArchiveUsage] = useState<StorageUsage | null>(null)
+
+  const refreshUsage = async () => {
+    if (!window.datapilot) return
+    setLoadingUsage(true)
+    try {
+      const [cache, archive] = await Promise.all([
+        window.datapilot.storage.usage(cacheDir),
+        window.datapilot.storage.usage(bagArchiveRoot),
+      ])
+      setCacheUsage(cache)
+      setArchiveUsage(archive)
+    } catch (err) {
+      console.error('Failed to read storage usage:', err)
+    } finally {
+      setLoadingUsage(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshUsage()
+  }, [cacheDir, bagArchiveRoot])
 
   const handleClearCache = async () => {
     setClearing(true)
     try {
       await api.clearAllSessions()
-      setCleared(true)
-      setTimeout(() => setCleared(false), 3000)
+      await refreshUsage()
     } catch (err: any) {
       alert(`Failed to clear cache: ${err.message || err}`)
     } finally {
@@ -788,24 +824,40 @@ function StorageSection(): JSX.Element {
             onChange={(v) => setSetting('cacheDir', v)}
           />
         </Row>
-        <Row label="Storage used" hint="Telemetry cache sizes & disk cap limits.">
-          <div
-            style={{
-              height: 8,
-              background: 'var(--color-bg-3)',
-              borderRadius: 4,
-              overflow: 'hidden',
-              marginBottom: 6,
-            }}
-          >
-            <div
-              style={{ width: cleared ? '0%' : '34%', height: '100%', background: 'var(--color-accent)', transition: 'width 0.5s ease' }}
-            />
+        <Row label="Storage used" hint="Live usage from your local filesystem paths.">
+          <div className="col gap-2" style={{ fontSize: 11.5 }}>
+            <div className="row gap-2 mono">
+              <span className="dim">Cache:</span>
+              <span style={{ color: 'var(--color-text-1)' }}>
+                {loadingUsage ? 'Reading…' : formatBytes(cacheUsage?.totalBytes ?? 0)}
+              </span>
+              <span className="dim">
+                {loadingUsage ? '' : `(${cacheUsage?.fileCount ?? 0} files)`}
+              </span>
+            </div>
+            <div className="row gap-2 mono">
+              <span className="dim">Bag archive:</span>
+              <span style={{ color: 'var(--color-text-1)' }}>
+                {loadingUsage ? 'Reading…' : formatBytes(archiveUsage?.totalBytes ?? 0)}
+              </span>
+              <span className="dim">
+                {loadingUsage ? '' : `(${archiveUsage?.fileCount ?? 0} files)`}
+              </span>
+            </div>
+            <div className="row gap-2 mono">
+              <span className="dim">Total:</span>
+              <span style={{ color: 'var(--color-text-1)' }}>
+                {loadingUsage
+                  ? 'Reading…'
+                  : formatBytes((cacheUsage?.totalBytes ?? 0) + (archiveUsage?.totalBytes ?? 0))}
+              </span>
+            </div>
           </div>
-          <div className="row gap-2 dim mono" style={{ fontSize: 11 }}>
-            <span style={{ color: 'var(--color-text-1)' }}>{cleared ? '0 GB' : '4.2 GB'}</span>
-            <span>of</span>
-            <span>12 GB cap</span>
+          <div className="row gap-2" style={{ marginTop: 8 }}>
+            <button className="btn ghost sm" onClick={() => void refreshUsage()} disabled={loadingUsage || clearing}>
+              <Icon.Refresh size={11} className={loadingUsage ? 'spin' : ''} />
+              Refresh
+            </button>
             <div className="flex1" />
             <button 
               className="btn ghost sm" 
@@ -816,7 +868,7 @@ function StorageSection(): JSX.Element {
                 size={11} 
                 className={clearing ? 'spin' : ''} 
               />
-              {clearing ? 'Clearing...' : 'Clear cache'}
+              {clearing ? 'Clearing...' : 'Clear sessions'}
             </button>
           </div>
         </Row>
@@ -904,8 +956,7 @@ function AboutSection(): JSX.Element {
 
   const handleOpenLogDir = async () => {
     if (!window.datapilot) return
-    // Read local cache/logs dir location
-    const userData = '~/Library/Logs/DataPilot'
+    const userData = await window.datapilot.app.userDataPath()
     await window.datapilot.shell.openPath(userData)
   }
 

@@ -2,7 +2,7 @@ import { ipcMain, dialog, safeStorage, shell, app, BrowserWindow } from 'electro
 import fs from 'fs'
 import path from 'path'
 import { dockerOrchestrator } from './dockerOrchestrator'
-import type { DockerStatus } from '@shared/ipc'
+import type { DockerStatus, StorageUsage } from '@shared/ipc'
 
 // Active log-stream unsubscribe callbacks, keyed by per-renderer subscription id.
 const activeLogStreams = new Map<string, () => void>()
@@ -39,10 +39,75 @@ function writeSettings(settings: Record<string, string>): void {
   }
 }
 
+function resolveUserPath(inputPath: string): string {
+  if (!inputPath) return inputPath
+  if (inputPath === '~') return app.getPath('home')
+  if (inputPath.startsWith('~/') || inputPath.startsWith('~\\')) {
+    return path.join(app.getPath('home'), inputPath.slice(2))
+  }
+  return path.resolve(inputPath)
+}
+
+function getPathUsage(targetPath: string): StorageUsage {
+  const resolvedPath = resolveUserPath(targetPath)
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    return {
+      path: targetPath,
+      resolvedPath,
+      exists: false,
+      totalBytes: 0,
+      fileCount: 0,
+    }
+  }
+
+  let totalBytes = 0
+  let fileCount = 0
+
+  const walk = (current: string): void => {
+    let stats: fs.Stats
+    try {
+      stats = fs.lstatSync(current)
+    } catch {
+      return
+    }
+
+    if (stats.isSymbolicLink()) return
+    if (stats.isFile()) {
+      totalBytes += stats.size
+      fileCount += 1
+      return
+    }
+    if (!stats.isDirectory()) return
+
+    let entries: string[]
+    try {
+      entries = fs.readdirSync(current)
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      walk(path.join(current, entry))
+    }
+  }
+
+  walk(resolvedPath)
+
+  return {
+    path: targetPath,
+    resolvedPath,
+    exists: true,
+    totalBytes,
+    fileCount,
+  }
+}
+
 export function registerIpcHandlers(): void {
   // App version / platform (already registered in scaffold, here for completeness)
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:platform', () => process.platform)
+  ipcMain.handle('app:userDataPath', () => app.getPath('userData'))
+  ipcMain.handle('app:homePath', () => app.getPath('home'))
 
   // Docker orchestrator handlers
   ipcMain.handle('docker:status', async (): Promise<DockerStatus> => {
@@ -186,5 +251,9 @@ export function registerIpcHandlers(): void {
   // Shell support
   ipcMain.handle('shell:openPath', async (_event, pathStr: string): Promise<void> => {
     await shell.openPath(pathStr)
+  })
+
+  ipcMain.handle('storage:usage', async (_event, targetPath: string): Promise<StorageUsage> => {
+    return getPathUsage(targetPath)
   })
 }

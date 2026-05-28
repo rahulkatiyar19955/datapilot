@@ -76,19 +76,26 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const platform = await window.datapilot.app.platform()
       const isWin = platform === 'win32'
       const defaultSocket = isWin ? '\\\\.\\pipe\\docker_engine' : '/var/run/docker.sock'
-      const defaultCache = isWin 
-        ? 'C:\\Users\\Default\\AppData\\Local\\DataPilot' 
-        : '~/Library/Application Support/DataPilot'
+      const [userDataPath, homePath] = await Promise.all([
+        window.datapilot.app.userDataPath(),
+        window.datapilot.app.homePath(),
+      ])
+      const defaultCache = userDataPath
+      const defaultBagArchiveRoot = isWin
+        ? `${homePath}\\datapilot\\bags`
+        : `${homePath}/datapilot/bags`
 
-      const getStr = async (key: string, def: string) => 
-        (await window.datapilot.settings.get(key)) ?? def
+      const getStr = async (key: string, def: string) => {
+        const val = await window.datapilot.settings.get(key)
+        return val === null || val === '' ? def : val
+      }
       const getBool = async (key: string, def: boolean) => {
         const val = await window.datapilot.settings.get(key)
-        return val !== null ? val === 'true' : def
+        return val !== null && val !== '' ? val === 'true' : def
       }
       const getNum = async (key: string, def: number) => {
         const val = await window.datapilot.settings.get(key)
-        return val !== null ? parseInt(val, 10) : def
+        return val !== null && val !== '' ? parseInt(val, 10) : def
       }
 
       const accentColor = await getStr('accent_color', 'Electric')
@@ -106,7 +113,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const concurrentWorkers = await getNum('concurrent_workers', 4)
       const autoTeardownAfter = await getStr('auto_teardown_after', '2 minutes')
       const cacheDir = await getStr('cache_dir', defaultCache)
-      const bagArchiveRoot = await getStr('bag_archive_root', '~/datapilot/bags')
+      const bagArchiveRoot = await getStr('bag_archive_root', defaultBagArchiveRoot)
       const autoIndexBags = await getBool('auto_index_bags', true)
       const chunkWindow = await getStr('chunk_window', '5 sec')
       const updateChannel = await getStr('update_channel', 'Stable')

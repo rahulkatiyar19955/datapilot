@@ -9,6 +9,8 @@ const api: DatapilotApi = {
   app: {
     version: () => ipcRenderer.invoke('app:version') as Promise<string>,
     platform: () => ipcRenderer.invoke('app:platform') as Promise<NodeJS.Platform>,
+    userDataPath: () => ipcRenderer.invoke('app:userDataPath') as Promise<string>,
+    homePath: () => ipcRenderer.invoke('app:homePath') as Promise<string>,
   },
   docker: {
     status: () => ipcRenderer.invoke('docker:status') as Promise<DockerStatus>,
@@ -52,7 +54,10 @@ const api: DatapilotApi = {
   },
   shell: {
     openPath: (path) => ipcRenderer.invoke('shell:openPath', path) as Promise<void>,
-  }
+  },
+  storage: {
+    usage: (path) => ipcRenderer.invoke('storage:usage', path),
+  },
 }
 
 if (process.contextIsolated) {

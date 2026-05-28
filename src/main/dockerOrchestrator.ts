@@ -58,6 +58,24 @@ class DockerOrchestrator {
     this.docker = new Docker({ socketPath: this.socketPath })
   }
 
+  private resolveHostPath(inputPath: string): string {
+    if (inputPath === '~') return app.getPath('home')
+    if (inputPath.startsWith('~/') || inputPath.startsWith('~\\')) {
+      return path.join(app.getPath('home'), inputPath.slice(2))
+    }
+    if (path.isAbsolute(inputPath)) return inputPath
+    return path.resolve(app.getPath('home'), inputPath)
+  }
+
+  private getBackendDataMountDir(): string {
+    const settings = this.getSettings()
+    const configured = settings['cache_dir']
+    if (typeof configured === 'string' && configured.trim().length > 0) {
+      return this.resolveHostPath(configured.trim())
+    }
+    return app.getPath('userData')
+  }
+
   public getStatus(): DockerStatus {
     return this.status
   }
@@ -153,7 +171,7 @@ class DockerOrchestrator {
   public async ensureVolumes(): Promise<void> {
     const result = await this.docker.listVolumes()
     const volumes = result.Volumes || []
-    const requiredVolumes = ['neo4j-data', 'neo4j-logs', 'app-data']
+    const requiredVolumes = ['neo4j-data', 'neo4j-logs']
     for (const vol of requiredVolumes) {
       if (!volumes.some((v) => v.Name === vol)) {
         await this.docker.createVolume({ Name: vol })
@@ -368,6 +386,8 @@ class DockerOrchestrator {
       await this.ensureImages()
 
       const userHome = app.getPath('home')
+      const dataMountDir = this.getBackendDataMountDir()
+      fs.mkdirSync(dataMountDir, { recursive: true })
 
       // Start services in order: Neo4j -> FastAPI Backend -> 5 workers
       console.log('Starting Neo4j...')
@@ -432,7 +452,7 @@ class DockerOrchestrator {
             '8000/tcp': [{ HostPort: '8000' }]
           },
           Binds: [
-            'app-data:/data',
+            `${dataMountDir}:/data`,
             `${userHome}:/host:ro` // Read-only mount of user home directory
           ],
           NetworkMode: 'datapilot-net'
