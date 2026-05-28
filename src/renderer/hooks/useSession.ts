@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { useSessionStore, setTopicsData } from '@renderer/stores/session'
+import { useChatStore } from '@renderer/stores/chat'
+import { MOCK_CHAT_MESSAGES } from '@renderer/services/mockData'
 import * as api from '@renderer/services/api'
+
 
 /**
  * Drives the session lifecycle when a bag path is provided.
@@ -12,7 +15,7 @@ import * as api from '@renderer/services/api'
  * this hook is a no-op (handles navigate-away-and-back without refetch).
  */
 export function useSession(pendingPath: string | null): void {
-  const { status, setSession, setStatus, setTabData, clearSession } =
+  const { setSession, setStatus, setTabData, clearSession } =
     useSessionStore()
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pathRef = useRef<string | null>(null)
@@ -20,8 +23,9 @@ export function useSession(pendingPath: string | null): void {
   useEffect(() => {
     if (!pendingPath) return
 
-    // No-op if already ready for this path
-    if (pendingPath === pathRef.current && status === 'ready') return
+    // No-op if already ready for this path — read current status from store
+    // directly to avoid a stale closure from render time.
+    if (pendingPath === pathRef.current && useSessionStore.getState().status === 'ready') return
 
     pathRef.current = pendingPath
     clearSession()
@@ -64,6 +68,12 @@ export function useSession(pendingPath: string | null): void {
               if (topics.status === 'fulfilled') setTopicsData(topics.value)
               if (logs.status === 'fulfilled') setTabData('logs', logs.value)
               if (kgraph.status === 'fulfilled') setTabData('kgraph', kgraph.value)
+
+              // MOCK SEED: for phase 6 visual diff
+              if (session_id === 'run-1042') {
+                console.log('SETTING MOCK CHAT MESSAGES:', MOCK_CHAT_MESSAGES)
+                useChatStore.setState({ messages: MOCK_CHAT_MESSAGES })
+              }
             } else if (updated.status === 'error') {
               setStatus('error')
             } else {

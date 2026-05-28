@@ -30,7 +30,7 @@ export function PlanCard({ steps }: PlanCardProps): JSX.Element {
               display: 'grid',
               placeItems: 'center',
               background: step.done
-                ? 'oklch(0.30 0.08 150 / 0.4)'
+                ? 'var(--color-ok-bg)'
                 : 'var(--color-bg-3)',
               color: step.done ? 'var(--color-ok)' : 'var(--color-text-3)',
               flexShrink: 0,

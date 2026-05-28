@@ -172,7 +172,7 @@ export function TimelineView(): JSX.Element {
                       top: 0,
                       bottom: 0,
                       width: 1,
-                      background: 'oklch(0.30 0.012 240 / 0.4)',
+                      background: 'var(--color-grid)',
                     }}
                   />
                 ))}

@@ -27,9 +27,9 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
       <div className="row" style={{ justifyContent: 'flex-end', padding: '6px 14px' }}>
         <div style={{
           maxWidth: '85%',
-          background: 'var(--color-accent-bg)',
-          border: '1px solid oklch(0.42 0.10 235 / 0.55)',
-          color: 'oklch(0.95 0.04 235)',
+          background: 'var(--color-chat-user-bg)',
+          border: '1px solid var(--color-chat-user-border)',
+          color: 'var(--color-chat-user-text)',
           borderRadius: '12px 12px 2px 12px',
           padding: '8px 12px',
           fontSize: 12.5,

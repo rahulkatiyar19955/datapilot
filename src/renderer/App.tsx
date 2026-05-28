@@ -21,12 +21,11 @@ function basename(p: string): string {
 export function App(): JSX.Element {
   const [dockerStatus, setDockerStatus] = useState<DockerStatus>({ state: 'pending' })
   const [version, setVersion] = useState<string>('0.1.0')
-  const [bagPath, setBagPath] = useState<string | null>(null)
   const [devScreen, setDevScreen] = useState<'main' | 'design-system'>('main')
 
   const { theme, toggle: toggleTheme } = useTheme()
   const { screen, setScreen, searchOpen, setSearchOpen } = useUIStore()
-  const { meta: sessionMeta, setPendingPath } = useSessionStore()
+  const { meta: sessionMeta, pendingPath, setPendingPath } = useSessionStore()
 
   useGlobalShortcut()
 
@@ -57,7 +56,6 @@ export function App(): JSX.Element {
           // Electron attaches the local absolute filesystem path to dropped files
           const path = (file as any).path
           if (path) {
-            setBagPath(path)
             setPendingPath(path)
             setScreen('copilot')
           }
@@ -97,23 +95,13 @@ export function App(): JSX.Element {
     void window.datapilot.docker.retry()
   }
 
-  const pickBagFile = async () => {
-    if (!window.datapilot) return
-    const file = await window.datapilot.file.pickBag()
-    if (file) {
-      setBagPath(file)
-      setPendingPath(file)
-      setScreen('copilot')
-    }
-  }
-
   const titleContent = sessionMeta ? (
     <span>
       <b>DataPilot</b> · {basename(sessionMeta.filename)} — {sessionMeta.robot}
     </span>
-  ) : bagPath ? (
+  ) : pendingPath ? (
     <span>
-      <b>DataPilot</b> · {basename(bagPath)} — Loading…
+      <b>DataPilot</b> · {basename(pendingPath)} — Loading…
     </span>
   ) : (
     <span>
@@ -235,59 +223,7 @@ export function App(): JSX.Element {
           </div>
         )}
 
-        {/* No-session overlay: shown in workspace area when copilot is active but no bag loaded */}
-        {screen === 'copilot' && !bagPath && (
-          <div
-            style={{
-              position: 'absolute',
-              left: 56 + 420,
-              right: 0,
-              top: 0,
-              bottom: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 24,
-              background: 'var(--color-bg-0)',
-            }}
-          >
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: 16,
-                background: 'var(--color-accent-bg)',
-                border: '1px solid oklch(0.50 0.12 235 / 0.4)',
-                display: 'grid',
-                placeItems: 'center',
-                color: 'var(--color-accent)',
-              }}
-            >
-              <Icon.File size={32} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480, textAlign: 'center' }}>
-              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: 'var(--color-text-0)' }}>
-                Load a ROS bag to begin
-              </h2>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-2)' }}>
-                The AI agent stack is ready. Use the Copilot panel or load a bag here.
-              </p>
-            </div>
-            <div className="row gap-3">
-              <Button variant="primary" onClick={pickBagFile}>
-                <Icon.Upload size={14} /> Load ROS bag
-              </Button>
-              <Button onClick={() => {
-                const demo = '/sample_bags/lidar_failure.mcap'
-                setBagPath(demo)
-                setPendingPath(demo)
-              }}>
-                Load demo bag
-              </Button>
-            </div>
-          </div>
-        )}
+
 
         {/* Search overlay placeholder */}
         {searchOpen && (

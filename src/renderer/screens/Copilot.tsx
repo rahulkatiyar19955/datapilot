@@ -12,8 +12,14 @@ export function Copilot(): JSX.Element {
 
   return (
     <div
-      className="flex1 row"
-      style={{ minWidth: 0, minHeight: 0 }}
+      className="flex1"
+      style={{
+        minWidth: 0,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'stretch',
+      }}
     >
       <CopilotPanel />
       <Workspace />

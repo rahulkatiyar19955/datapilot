@@ -14,11 +14,16 @@ function formatSize(totalMessages: number): string {
 }
 
 export function ContextChips(): JSX.Element | null {
-  const { meta, clearSession } = useSessionStore()
+  const { meta, clearSession, setPendingPath } = useSessionStore()
 
   if (!meta) return null
 
   const filename = meta.filename.split(/[/\\]/).pop() ?? meta.filename
+
+  const handleClear = () => {
+    clearSession()
+    setPendingPath(null)
+  }
 
   return (
     <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--color-border-1)', flexShrink: 0 }}>
@@ -28,7 +33,7 @@ export function ContextChips(): JSX.Element | null {
         <button
           className="btn ghost sm"
           style={{ height: 20, padding: '0 6px', fontSize: 11 }}
-          onClick={clearSession}
+          onClick={handleClear}
           title="Clear session"
         >
           <Icon.X size={11} /> Clear
@@ -43,7 +48,7 @@ export function ContextChips(): JSX.Element | null {
           <button
             className="btn ghost icon sm"
             style={{ height: 18, width: 18 }}
-            onClick={clearSession}
+            onClick={handleClear}
             title="Remove bag"
           >
             <Icon.X size={10} />

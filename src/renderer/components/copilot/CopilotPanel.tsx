@@ -9,8 +9,20 @@ import { CommandBar } from './CommandBar'
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages)
   const clearMessages = useChatStore((s) => s.clearMessages)
-  const { status, meta } = useSessionStore()
+  const { status, meta, clearSession, setPendingPath } = useSessionStore()
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * "New session" — clears the chat AND resets the session entirely so the
+   * user lands on the idle workspace ready to load a fresh bag.
+   * This also aborts any in-flight session creation (via the useSession
+   * cleanup that fires when pendingPath becomes null).
+   */
+  const handleNewSession = () => {
+    clearMessages()
+    clearSession()
+    setPendingPath(null)
+  }
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -52,7 +64,7 @@ export function CopilotPanel(): JSX.Element {
         <button
           className="btn ghost icon sm"
           title="New session"
-          onClick={clearMessages}
+          onClick={handleNewSession}
         >
           <Icon.Plus size={13} />
         </button>
