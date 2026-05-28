@@ -51,7 +51,12 @@ export function CommandBar(): JSX.Element {
           }}
         />
         <div className="row gap-2">
-          <button className="btn ghost icon sm" title="Mic (not available)" disabled>
+          <button
+            className="btn ghost icon sm"
+            title="Voice input — not available yet"
+            disabled
+            style={{ opacity: 0.35, cursor: 'not-allowed' }}
+          >
             <Icon.Mic size={13} />
           </button>
           <button className="btn ghost icon sm" title="Attach (not available)" disabled>

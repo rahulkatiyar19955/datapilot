@@ -386,13 +386,28 @@ export function CopilotPanel(): JSX.Element {
           >
             <Icon.Upload size={11} /> Upload rosbag
           </button>
-          <button className="pill ghost" style={{ cursor: 'pointer', height: 24 }}>
+          <button
+            className="pill ghost"
+            style={{ height: 24 }}
+            disabled
+            title="Coming soon"
+          >
             <Icon.Wifi size={11} /> Connect live robot
           </button>
-          <button className="pill ghost" style={{ cursor: 'pointer', height: 24 }}>
+          <button
+            className="pill ghost"
+            style={{ height: 24 }}
+            disabled
+            title="Coming soon"
+          >
             <Icon.Search size={11} /> Search past runs
           </button>
-          <button className="pill ghost" style={{ cursor: 'pointer', height: 24 }}>
+          <button
+            className="pill ghost"
+            style={{ height: 24 }}
+            disabled
+            title="Coming soon"
+          >
             <Icon.Layers size={11} /> Compare releases
           </button>
         </div>

@@ -414,6 +414,12 @@ body {
   color: var(--color-text-2);
 }
 
+button.pill:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: saturate(0.7);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -789,4 +795,3 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-
