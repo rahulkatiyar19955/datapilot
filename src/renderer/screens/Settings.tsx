@@ -4,6 +4,7 @@ import { Toggle } from '@renderer/components/ui'
 import { useTheme } from '@renderer/hooks/useTheme'
 import type { Theme } from '@renderer/hooks/useTheme'
 import { useSettingsStore, ACCENT_PRESETS } from '@renderer/stores/settings'
+import { useUIStore } from '@renderer/stores/ui'
 import * as api from '@renderer/services/api'
 import type { StorageUsage } from '@shared/ipc'
 
@@ -1012,9 +1013,17 @@ function AboutSection(): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export function Settings(): JSX.Element {
-  const [section, setSection] = useState<SectionId>('general')
+  const settingsSectionTarget = useUIStore((s) => s.settingsSectionTarget)
+  const setSettingsSectionTarget = useUIStore((s) => s.setSettingsSectionTarget)
+  const [section, setSection] = useState<SectionId>(settingsSectionTarget ?? 'general')
   const { theme, setTheme } = useTheme()
   const loading = useSettingsStore((s) => s.loading)
+
+  useEffect(() => {
+    if (!settingsSectionTarget) return
+    setSection(settingsSectionTarget)
+    setSettingsSectionTarget(null)
+  }, [settingsSectionTarget, setSettingsSectionTarget])
 
   const activeLabel = SECTIONS.find((s) => s.id === section)?.label ?? ''
 

@@ -15,7 +15,7 @@ export function CopilotPanel(): JSX.Element {
   const clearMessages = useChatStore((s) => s.clearMessages)
   const { status, clearSession, setPendingPath, pendingPath, setPendingSessionId } = useSessionStore()
   const { apiKeys, defaultProvider, defaultModel } = useSettingsStore()
-  const { setScreen } = useUIStore()
+  const { setScreen, setSettingsSectionTarget } = useUIStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const showWarningBanner = defaultProvider !== 'ollama' && !apiKeys[defaultProvider]
@@ -291,7 +291,10 @@ export function CopilotPanel(): JSX.Element {
               onMouseLeave={(e) => {
                 e.currentTarget.style.filter = 'none'
               }}
-              onClick={() => setScreen('settings')}
+              onClick={() => {
+                setSettingsSectionTarget('models')
+                setScreen('settings')
+              }}
             >
               <Icon.Settings size={11} />
               Open Settings
