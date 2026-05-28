@@ -64,7 +64,11 @@ export function useChat(): UseChatReturn {
           done: false,
           active: false,
         }))
-        updateLastMessage((m) => ({ ...m, plan }))
+        // Only show the plan card when there are actual steps.
+        // General chat sends plan:[] to make the backend feel responsive — ignore it.
+        if (plan.length > 0) {
+          updateLastMessage((m) => ({ ...m, plan }))
+        }
       } else if (event === 'step-start') {
         const { idx } = data as StepEventData
         updatePlanStep(idx, { active: true })

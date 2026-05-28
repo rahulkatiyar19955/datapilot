@@ -5,6 +5,7 @@ import { Icon } from '@renderer/components/Icon'
 import { PlanCard } from './PlanCard'
 import { FindingsCard } from './FindingsCard'
 import { CausalChain } from './CausalChain'
+import { useChatStore } from '@renderer/stores/chat'
 import { useUIStore } from '@renderer/stores/ui'
 import type { ChatMessage as ChatMessageType } from '@shared/types'
 import type { WorkspaceTab } from '@shared/types'
@@ -23,6 +24,12 @@ function ActionIcon({ name }: { name: string }): JSX.Element | null {
 
 export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
   const setTab = useUIStore((s) => s.setTab)
+
+  // True only for the last assistant message while the model is streaming —
+  // used to show the thinking-dots placeholder until content arrives.
+  const isThinking = useChatStore(
+    (s) => s.streaming && s.messages[s.messages.length - 1]?.id === msg.id,
+  )
 
   if (msg.role === 'user') {
     return (
@@ -79,6 +86,13 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
         )}
       </div>
 
+      {/* Animated dots while waiting for the first content to arrive */}
+      {isThinking && !msg.plan?.length && !msg.summary && (
+        <div className="chat-thinking">
+          <span /><span /><span />
+        </div>
+      )}
+
       {msg.summary && (
         <div className="chat-md" style={{ marginBottom: 8 }}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -87,7 +101,7 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
         </div>
       )}
 
-      {msg.plan && <PlanCard steps={msg.plan} />}
+      {msg.plan && msg.plan.length > 0 && <PlanCard steps={msg.plan} />}
       {msg.findings && <FindingsCard findings={msg.findings} />}
       {msg.causal && <CausalChain items={msg.causal} />}
 
