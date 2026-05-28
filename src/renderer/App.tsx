@@ -2,6 +2,8 @@ import { useEffect, useState, type JSX } from 'react'
 import { Setup } from './screens/Setup'
 import { DesignSystem } from './screens/DesignSystem'
 import { Copilot } from './screens/Copilot'
+import { Agents } from './screens/Agents'
+import { Settings } from './screens/Settings'
 import { Icon } from './components/Icon'
 import { useTheme } from './hooks/useTheme'
 import { useGlobalShortcut } from './hooks/useGlobalShortcut'
@@ -24,7 +26,7 @@ export function App(): JSX.Element {
   const [devScreen, setDevScreen] = useState<'main' | 'design-system'>('main')
 
   const { theme, toggle: toggleTheme } = useTheme()
-  const { screen, setScreen, searchOpen, setSearchOpen } = useUIStore()
+  const { screen, setScreen } = useUIStore()
   const { meta: sessionMeta, pendingPath, setPendingPath } = useSessionStore()
 
   useGlobalShortcut()
@@ -166,24 +168,6 @@ export function App(): JSX.Element {
             active={screen === 'copilot'}
             onClick={() => setScreen('copilot')}
           />
-          <RailButton
-            icon={<Icon.Fleet size={18} />}
-            label="Fleet"
-            active={screen === 'fleet'}
-            onClick={() => setScreen('fleet')}
-          />
-          <RailButton
-            icon={<Icon.Search size={18} />}
-            label="Search"
-            active={searchOpen}
-            onClick={() => setSearchOpen(true)}
-          />
-          <RailButton
-            icon={<Icon.Replay size={18} />}
-            label="Replay"
-            active={screen === 'replay'}
-            onClick={() => setScreen('replay')}
-          />
           <div className="rail-spacer" />
           <RailButton
             icon={<Icon.Bot size={18} />}
@@ -199,88 +183,9 @@ export function App(): JSX.Element {
           />
         </Rail>
 
-        {/* Copilot screen (includes CopilotPanel + Workspace) */}
         {screen === 'copilot' && <Copilot />}
-
-        {/* Phase 7–11 screens: placeholder panels */}
-        {(screen === 'fleet' || screen === 'replay' || screen === 'agents' || screen === 'settings') && (
-          <div
-            className="flex1 col"
-            style={{
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-text-3)',
-              fontSize: 13,
-              gap: 8,
-            }}
-          >
-            <Icon.Settings size={24} />
-            <span>
-              {screen === 'fleet' && 'Fleet Dashboard — Phase 7'}
-              {screen === 'replay' && 'Replay — Phase 8'}
-              {screen === 'agents' && 'Agents & MCP — Phase 9'}
-              {screen === 'settings' && 'Settings — Phase 11'}
-            </span>
-          </div>
-        )}
-
-
-
-        {/* Search overlay placeholder */}
-        {searchOpen && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 50,
-              background: 'oklch(0.08 0.01 240 / 0.65)',
-              backdropFilter: 'blur(8px)',
-              display: 'flex',
-              flexDirection: 'column',
-              padding: '60px 80px',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-text-0)',
-            }}
-            onClick={() => setSearchOpen(false)}
-          >
-            <div
-              className="panel"
-              style={{
-                padding: '24px 32px',
-                maxWidth: 400,
-                textAlign: 'center',
-                boxShadow: '0 20px 40px -15px oklch(0 0 0 / 0.7)',
-                borderColor: 'var(--color-border-2)',
-                background: 'var(--color-bg-1)',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 12,
-                  background: 'var(--color-accent-bg)',
-                  display: 'grid',
-                  placeItems: 'center',
-                  color: 'var(--color-accent)',
-                  margin: '0 auto 16px',
-                  border: '1px solid oklch(0.50 0.12 235 / 0.3)',
-                }}
-              >
-                <Icon.Search size={22} />
-              </div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Semantic Search</h3>
-              <p style={{ fontSize: 12, color: 'var(--color-text-2)', margin: '8px 0 20px', lineHeight: 1.4 }}>
-                Search past runs in natural language. This feature is coming in Phase 10. You can also trigger it using the <code className="mono" style={{ background: 'var(--color-bg-2)', padding: '2px 4px', borderRadius: 4 }}>⌘K</code> shortcut.
-              </p>
-              <Button size="sm" onClick={() => setSearchOpen(false)}>
-                Dismiss
-              </Button>
-            </div>
-          </div>
-        )}
+        {screen === 'agents' && <Agents />}
+        {screen === 'settings' && <Settings />}
       </div>
     </WindowChrome>
   )

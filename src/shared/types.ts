@@ -3,7 +3,7 @@
  * All serializable — no JSX, no functions.
  */
 
-export type ScreenName = 'copilot' | 'fleet' | 'replay' | 'agents' | 'settings'
+export type ScreenName = 'copilot' | 'agents' | 'settings'
 export type WorkspaceTab = 'timeline' | 'metrics' | 'map' | 'logs' | 'kgraph'
 export type SessionStatus = 'idle' | 'creating' | 'processing' | 'ready' | 'error'
 
