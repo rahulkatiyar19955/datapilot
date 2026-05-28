@@ -1,0 +1,7 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+mcap>=1.2.1
+mcap-ros2-support>=0.5.5
+rosbags>=0.10.7
+protobuf>=5.0.0
+foxglove-schemas-protobuf>=0.1.0

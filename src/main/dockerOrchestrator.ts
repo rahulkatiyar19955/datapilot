@@ -420,6 +420,19 @@ class DockerOrchestrator {
         throw new Error('Neo4j database failed to become healthy within 30 seconds.')
       }
 
+      // Start MCAP parser service before the backend (backend calls it during ingestion).
+      console.log('Starting MCAP Parser...')
+      this.setStatus({ state: 'pending', progress: 70, step: 'Starting MCAP Parser service…' })
+      await this.startContainer('mcap-parser', {
+        Image: 'datapilot/mcap-parser:local',
+        Env: ['DATAPILOT_HOST_MOUNT=/host'],
+        HostConfig: {
+          Binds: [`${userHome}:/host:ro`],
+          NetworkMode: 'datapilot-net',
+        },
+      })
+      // No health poll — backend falls back to inline parser if still initializing.
+
       console.log('Starting FastAPI Backend...')
       this.setStatus({ state: 'pending', progress: 75, step: 'Starting FastAPI Backend container…' })
 
@@ -429,6 +442,7 @@ class DockerOrchestrator {
         'NEO4J_PASSWORD=datapilot-local',
         'DATAPILOT_HOST_MOUNT=/host',
         'DATAPILOT_DATA_DIR=/data',
+        'MCAP_PARSER_URL=http://datapilot-mcap-parser:8100',
         // in_process: tools are called directly in the backend process — no
         // subprocess overhead. Workers still run to serve their /health endpoints.
         'DATAPILOT_MCP_TRANSPORT=in_process',
