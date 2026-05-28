@@ -26,7 +26,7 @@ DEFAULT_SPECIALIST_MODELS: dict[str, str] = {
     "RootCauseAnalyst":   "claude-sonnet-4-5-20250929",
     "AnomalyDetector":    "claude-sonnet-4-5-20250929",
     "PerformanceProfiler": "gpt-5",
-    "ReplayNarrator":     "gemini-3.1-pro-preview",
+    "ReplayNarrator":     "deepseek-ai/deepseek-r1",
     "SafetyAuditor":      "claude-opus-4-1-20250805",
     "ReleaseComparator":  "claude-sonnet-4-5-20250929",
 }
@@ -38,6 +38,7 @@ SUPERVISOR_CASCADE: list[tuple[str, str]] = [
     ("anthropic", "claude-haiku-4-5-20251001"),
     ("openai",    "gpt-5-mini"),
     ("gemini",    "gemini-3.5-flash"),
+    ("nvidia",    "meta/llama-3.3-70b-instruct"),
     ("ollama",    "llama3.2"),
 ]
 
@@ -55,6 +56,9 @@ def _provider_for_model(model_id: str) -> str:
         return "openai"
     if m.startswith("gemini"):
         return "gemini"
+    # NIM models use org/model-name format: deepseek-ai/, meta/, nvidia/, mistralai/, …
+    if "/" in m:
+        return "nvidia"
     # Llama / qwen / mistral / etc. → Ollama
     return "ollama"
 
@@ -66,6 +70,8 @@ def _provider_key_present(provider: str) -> bool:
         return bool(settings.openai_api_key)
     if provider == "gemini":
         return bool(settings.gemini_api_key)
+    if provider == "nvidia":
+        return bool(settings.nvidia_api_key)
     if provider == "ollama":
         return True  # Ollama defaults to localhost; we let the call fail at runtime if unreachable
     return False
@@ -83,6 +89,9 @@ def _build_client(provider: str, model_id: str) -> LLMClient:
     if provider == "gemini":
         from app.llm.gemini_client import GeminiClient
         return GeminiClient(model_id=model_id)
+    if provider == "nvidia":
+        from app.llm.nim_client import NimClient
+        return NimClient(model_id=model_id)
     if provider == "ollama":
         from app.llm.ollama_client import OllamaClient
         return OllamaClient(model_id=model_id)

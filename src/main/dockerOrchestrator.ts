@@ -460,6 +460,10 @@ class DockerOrchestrator {
       if (geminiKey) {
         backendEnv.push(`GEMINI_API_KEY=${geminiKey}`)
       }
+      const nvidiaKey = this.getSecureKey('nvidia')
+      if (nvidiaKey) {
+        backendEnv.push(`NVIDIA_API_KEY=${nvidiaKey}`)
+      }
 
       await this.startContainer('backend', {
         Image: 'datapilot/backend:local',

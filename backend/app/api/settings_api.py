@@ -39,6 +39,13 @@ async def test_key(payload: KeyTestRequest):
                 except StopIteration:
                     pass
             await asyncio.to_thread(_test_connection)
+        elif provider == "nvidia":
+            import openai
+            client = openai.AsyncOpenAI(
+                api_key=key,
+                base_url="https://integrate.api.nvidia.com/v1",
+            )
+            await client.models.list()
         elif provider == "ollama":
             import httpx
             # Ollama requires checking the /api/tags endpoint.
@@ -48,7 +55,7 @@ async def test_key(payload: KeyTestRequest):
                 url = url.replace("localhost", "host.docker.internal")
             if "127.0.0.1" in url:
                 url = url.replace("127.0.0.1", "host.docker.internal")
-                
+
             async with httpx.AsyncClient(timeout=5.0) as http_client:
                 resp = await http_client.get(f"{url}/api/tags")
                 resp.raise_for_status()
@@ -115,6 +122,15 @@ async def list_provider_models(payload: ModelsListRequest):
                         model_ids.append(name)
             return sorted(list(set(model_ids)))
 
+        elif provider == "nvidia":
+            import openai
+            client = openai.AsyncOpenAI(
+                api_key=key,
+                base_url="https://integrate.api.nvidia.com/v1",
+            )
+            models_resp = await client.models.list()
+            return sorted([m.id for m in models_resp.data])
+
         elif provider == "ollama":
             import httpx
             url = endpoint or "http://host.docker.internal:11434"
@@ -157,6 +173,8 @@ async def update_key(payload: KeyUpdateRequest):
         settings.anthropic_api_key = key or None
     elif provider == "google" or provider == "gemini":
         settings.gemini_api_key = key or None
+    elif provider == "nvidia":
+        settings.nvidia_api_key = key or None
 
     return {"status": "success", "message": f"Updated API key for {provider}"}
 
