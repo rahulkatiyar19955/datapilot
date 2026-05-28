@@ -96,4 +96,10 @@ export interface ChatMessage {
   findings?: Finding[]
   causal?: CausalItem[]
   actions?: ChatAction[]
+  usage?: {
+    tokens_in: number
+    tokens_out: number
+    est_cost_usd?: number
+  }
 }
+

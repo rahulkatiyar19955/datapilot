@@ -22,6 +22,11 @@ interface FinalEventData {
   findings?: Array<{ sev?: string; text?: string; detail?: string }>
   audit_trail?: Array<{ result_summary?: string }>
   citations?: unknown[]
+  usage?: {
+    tokens_in: number
+    tokens_out: number
+    est_cost_usd?: number
+  }
 }
 
 interface ErrorEventData {
@@ -105,6 +110,7 @@ export function useChat(): UseChatReturn {
           findings: findings?.length ? findings : undefined,
           causal: causal?.length ? causal : undefined,
           actions,
+          usage: final.usage,
         }))
 
         setStreaming(false)
