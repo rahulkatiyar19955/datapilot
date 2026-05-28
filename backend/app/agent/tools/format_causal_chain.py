@@ -39,7 +39,9 @@ ORDER BY src.ts
 """
 
 
-def _truncate(msg: str, n: int = 60) -> str:
+def _truncate(msg: str | None, n: int = 60) -> str:
+    if not msg:
+        return ""
     return msg[:n] + "…" if len(msg) > n else msg
 
 

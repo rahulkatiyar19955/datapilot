@@ -31,7 +31,7 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
     MATCH (s2:Session {id: $baseline_session_id})-[:HAS_TOPIC]->(t2:Topic {name: t1.name})
     WHERE t2.hz > 0
     WITH t1, t2,
-         (t1.hz - t2.hz) / t2.hz AS delta_ratio
+         (coalesce(t1.hz, 0.0) - t2.hz) / t2.hz AS delta_ratio
     WHERE delta_ratio < -0.20
     RETURN t1.name AS topic,
            t1.hz AS current_hz,
