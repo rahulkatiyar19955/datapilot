@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { clearAllSessions } from '@renderer/services/api'
+import { clearAllSessions, updateBackendKey } from '@renderer/services/api'
 
 
 export const ACCENT_PRESETS = [
@@ -147,6 +147,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         loading: false,
       })
 
+      // Sync loaded API keys with backend container on startup
+      for (const [provider, key] of Object.entries(apiKeys)) {
+        if (key) {
+          try {
+            await updateBackendKey(provider, key)
+          } catch (err) {
+            console.error(`Failed to sync API key for ${provider} to backend:`, err)
+          }
+        }
+      }
+
       // Apply accent color
       const preset = ACCENT_PRESETS.find(p => p.label === accentColor)
       if (preset) {
@@ -194,6 +205,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     try {
       await window.datapilot.keychain.set(provider, value)
+      // Sync API key to backend container at runtime
+      await updateBackendKey(provider, value)
     } catch (err) {
       console.error(`Failed to save API key for ${provider}:`, err)
     }
@@ -225,6 +238,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
       for (const p of ['anthropic', 'openai', 'google', 'ollama', 'custom']) {
         await window.datapilot.keychain.set(p, '')
+        try {
+          await updateBackendKey(p, '')
+        } catch (err) {
+          console.error(`Failed to clear API key for ${p} on backend:`, err)
+        }
       }
 
       // Reload defaults
