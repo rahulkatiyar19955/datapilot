@@ -78,7 +78,7 @@ class NimClient:
         import openai
         self.model_id = model_id
         self._client = openai.AsyncOpenAI(
-            api_key=settings.nvidia_api_key,
+            api_key=settings.nvidia_api_key or "",
             base_url=_NIM_BASE_URL,
         )
 

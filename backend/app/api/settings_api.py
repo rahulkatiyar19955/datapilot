@@ -234,7 +234,7 @@ async def delete_agent_model(specialist: str, db: AsyncSession = Depends(get_db)
     )
     record = res.scalar_one_or_none()
     if record:
-        await db.delete(record)
+        db.delete(record)
         await db.commit()
     set_specialist_override(specialist, None)
     return {"status": "success", "specialist": specialist}

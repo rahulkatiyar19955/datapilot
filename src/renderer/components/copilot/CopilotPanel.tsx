@@ -368,7 +368,9 @@ export function CopilotPanel(): JSX.Element {
                       ? "Claude (Anthropic)"
                       : defaultProvider === "openai"
                         ? "OpenAI"
-                        : "Custom"}
+                        : defaultProvider === "nvidia"
+                          ? "NVIDIA NIM"
+                          : "Custom"}
                 </b>{" "}
                 API key in settings to enable the Copilot.
               </span>
