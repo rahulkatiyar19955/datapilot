@@ -115,144 +115,179 @@ def _decode_foxglove_log(
 # ── MCAP parser ───────────────────────────────────────────────────────────────
 
 def _parse_mcap(filepath: str) -> dict[str, Any]:
+    """Parse an MCAP file supporting both CDR and protobuf message encodings.
+
+    Strategy:
+    - Message counts and bag timing come from the MCAP statistics block (O(1)).
+    - CDR log + TF channels are decoded via iter_decoded_messages (Ros2DecoderFactory).
+    - Protobuf log channels (foxglove.Log) are decoded via a separate iter_messages
+      pass using raw bytes + foxglove_schemas_protobuf.
+    - Protobuf TF channels (foxglove.FrameTransform) are currently skipped — frame
+      graph data is not available in Foxglove-only bags.
+    This split avoids the "no decoder factory for protobuf" exception that
+    iter_decoded_messages raises when it encounters mixed-encoding bags.
+    """
     from mcap.reader import make_reader
-    from mcap_ros2.reader import read_ros2_messages
+    from mcap_ros2.decoder import DecoderFactory as Ros2DecoderFactory
 
     warnings: list[str] = []
     tf_parser = _TFParser()
     logs: list[dict] = []
     timeline_events: list[dict] = []
-    start_time: float | None = None
-    end_time: float | None = None
-
-    # ── Pass 1: topic catalog + identify protobuf log channels ────────────────
-    proto_log_topics: set[str] = set()
-    topics_dict: dict[str, dict] = {}
 
     with open(filepath, "rb") as f:
-        summary = make_reader(f).get_summary()
-        if summary is None:
-            warnings.append("MCAP summary unavailable — skipping topic catalog")
-        else:
-            for channel in summary.channels.values():
-                schema = summary.schemas.get(channel.schema_id)
-                schema_name = schema.name if schema else "unknown"
-                encoding = getattr(channel, "message_encoding", "cdr")
-                topics_dict[channel.topic] = {
-                    "name": channel.topic,
-                    "hz": 0.0,
-                    "type": schema_name,
-                    "msgs": 0,
-                }
-                if schema_name in _LOG_SCHEMAS and encoding == "protobuf":
-                    proto_log_topics.add(channel.topic)
-                    logger.info(
-                        "Detected protobuf log topic: %s (schema=%s)",
-                        channel.topic, schema_name,
-                    )
+        reader = make_reader(f, decoder_factories=[Ros2DecoderFactory()])
+        summary = reader.get_summary()
 
-    # ── Pass 2a: CDR decoding via mcap_ros2 (ROS 2 standard) ─────────────────
-    CDR_LOG_TOPICS = {"/rosout"}
-    CDR_TF_TOPICS = {"/tf", "/tf_static"}
+        # ── Topic catalog ─────────────────────────────────────────────────────
+        topics_dict: dict[str, dict] = {}
+        channel_to_topic: dict[int, str] = {}
+        channel_to_encoding: dict[int, str] = {}
+        log_channel_ids: set[int] = set()
+        tf_channel_ids: set[int] = set()
 
-    try:
-        for msg_info in read_ros2_messages(filepath):
-            topic = msg_info.channel.topic
-            timestamp = msg_info.log_time / 1e9
+        for channel in (summary.channels if summary else {}).values():
+            schema = (summary.schemas if summary else {}).get(channel.schema_id)
+            schema_name = schema.name if schema else "unknown"
+            encoding = getattr(channel, "message_encoding", "cdr")
+            topics_dict[channel.topic] = {
+                "name": channel.topic,
+                "hz": 0.0,
+                "type": schema_name,
+                "msgs": 0,
+                "encoding": encoding,
+            }
+            channel_to_topic[channel.id] = channel.topic
+            channel_to_encoding[channel.id] = encoding
+            if schema_name in _LOG_SCHEMAS:
+                log_channel_ids.add(channel.id)
+                logger.info("Log channel: %s (schema=%s, enc=%s)", channel.topic, schema_name, encoding)
+            if channel.topic in ("/tf", "/tf_static"):
+                tf_channel_ids.add(channel.id)
 
-            if start_time is None:
-                start_time = timestamp
-            end_time = timestamp
+        # ── Message counts + bag timing from statistics (O(1)) ────────────────
+        start_time: float | None = None
+        end_time: float | None = None
+        stats = summary.statistics if summary else None
+        if stats:
+            for ch_id, count in (stats.channel_message_counts or {}).items():
+                topic = channel_to_topic.get(ch_id)
+                if topic and topic in topics_dict:
+                    topics_dict[topic]["msgs"] = count
+            if stats.message_start_time:
+                start_time = stats.message_start_time / 1e9
+            if stats.message_end_time:
+                end_time = stats.message_end_time / 1e9
 
-            if topic in topics_dict:
-                topics_dict[topic]["msgs"] += 1
+        # ── Split channels by encoding ────────────────────────────────────────
+        # iter_decoded_messages throws when it hits a protobuf channel and no
+        # protobuf factory is registered.  Only pass CDR channels to it.
+        cdr_log_ids = {cid for cid in log_channel_ids if channel_to_encoding.get(cid) != "protobuf"}
+        cdr_tf_ids  = {cid for cid in tf_channel_ids  if channel_to_encoding.get(cid) != "protobuf"}
+        pb_log_ids  = {cid for cid in log_channel_ids if channel_to_encoding.get(cid) == "protobuf"}
 
-            if topic not in CDR_LOG_TOPICS and topic not in CDR_TF_TOPICS:
-                continue
+        cdr_topics = list({
+            channel_to_topic[cid]
+            for cid in (cdr_log_ids | cdr_tf_ids)
+            if cid in channel_to_topic
+        })
+        pb_log_topics = list({
+            channel_to_topic[cid]
+            for cid in pb_log_ids
+            if cid in channel_to_topic
+        })
 
-            msg = msg_info.ros_msg
-
-            if topic in CDR_LOG_TOPICS:
-                node = getattr(msg, "name", "unknown")
-                msg_text = getattr(msg, "msg", "")
-                level_int = getattr(msg, "level", 20)
-                sev = _SEV_INT_MAP.get(level_int, "INFO")
-                logs.append({
-                    "t": str(timedelta(seconds=timestamp - (start_time or timestamp))),
-                    "node": node,
-                    "sev": sev,
-                    "text": msg_text,
-                    "topic": topic,
-                })
-                if sev in ("WARN", "ERROR", "FATAL"):
-                    timeline_events.append({
-                        "t": float(timestamp - (start_time or timestamp)),
-                        "type": "log",
-                        "sev": sev.lower(),
-                        "topic": topic,
-                        "label": msg_text[:40],
-                    })
-
-            elif topic in CDR_TF_TOPICS:
-                tf_parser.parse(msg)
-
-    except Exception as exc:
-        warnings.append(f"CDR decoding pass failed: {exc}")
-        logger.warning("CDR pass error for %s: %s", filepath, exc)
-
-    # ── Pass 2b: protobuf log channels (Foxglove Studio recordings) ───────────
-    if proto_log_topics:
-        try:
-            with open(filepath, "rb") as f:
-                reader = make_reader(f)
-                for schema, channel, message in reader.iter_messages(
-                    topics=list(proto_log_topics)
+        # ── CDR pass: ROS 2 standard bags ─────────────────────────────────────
+        if cdr_topics:
+            try:
+                for schema, channel, message, decoded_message in reader.iter_decoded_messages(
+                    topics=cdr_topics
                 ):
-                    timestamp = message.log_time / 1e9
-                    if start_time is None:
-                        start_time = timestamp
-                    end_time = max(end_time or 0.0, timestamp)
+                    if decoded_message is None:
+                        continue
+                    ts = message.log_time / 1e9
+                    rel = ts - (start_time or ts)
 
-                    if channel.topic in topics_dict:
-                        topics_dict[channel.topic]["msgs"] += 1
+                    if channel.id in cdr_log_ids:
+                        node = getattr(decoded_message, "name", "unknown")
+                        text = getattr(decoded_message, "msg", "")
+                        level = getattr(decoded_message, "level", 20)
+                        sev = _SEV_INT_MAP.get(level, "INFO")
+                        logs.append({
+                            "t": str(timedelta(seconds=rel)),
+                            "node": node,
+                            "sev": sev,
+                            "text": text,
+                            "topic": channel.topic,
+                        })
+                        if sev in ("WARN", "ERROR", "FATAL"):
+                            timeline_events.append({
+                                "t": rel,
+                                "type": "log",
+                                "sev": sev.lower(),
+                                "topic": channel.topic,
+                                "label": text[:40],
+                            })
 
+                    elif channel.id in cdr_tf_ids:
+                        tf_parser.parse(decoded_message)
+
+            except Exception as exc:
+                warnings.append(f"CDR decode pass failed: {exc}")
+                logger.warning("CDR iter_decoded_messages error for %s: %s", filepath, exc)
+
+        # ── Protobuf log pass: Foxglove Studio bags ───────────────────────────
+        # Uses raw iter_messages (no decoder factory needed) + manual protobuf decode.
+        if pb_log_topics:
+            try:
+                for schema, channel, message in reader.iter_messages(topics=pb_log_topics):
+                    if channel.id not in pb_log_ids:
+                        continue
                     schema_name = schema.name if schema else ""
+                    ts = message.log_time / 1e9
+                    rel = ts - (start_time or ts)
                     if schema_name == "foxglove.Log":
                         entry = _decode_foxglove_log(
-                            message.data, timestamp, start_time or timestamp, warnings
+                            message.data, ts, start_time or ts, warnings
                         )
-                        if entry:
-                            if entry["sev"] in ("WARN", "ERROR", "FATAL"):
-                                timeline_events.append({
-                                    "t": float(timestamp - (start_time or timestamp)),
-                                    "type": "log",
-                                    "sev": entry["sev"].lower(),
-                                    "topic": entry["topic"],
-                                    "label": entry["text"][:40],
-                                })
-                            logs.append(entry)
+                        if entry is None:
+                            continue
+                        logs.append({
+                            "t": str(timedelta(seconds=rel)),
+                            "node": entry["node"],
+                            "sev": entry["sev"],
+                            "text": entry["text"],
+                            "topic": channel.topic,
+                        })
+                        sev = entry["sev"]
+                        if sev in ("WARN", "ERROR", "FATAL"):
+                            timeline_events.append({
+                                "t": rel,
+                                "type": "log",
+                                "sev": sev.lower(),
+                                "topic": channel.topic,
+                                "label": entry["text"][:40],
+                            })
                     else:
                         warnings.append(
-                            f"topic {channel.topic!r} (schema={schema_name!r}, "
-                            f"protobuf): schema not recognized — skipped"
+                            f"Unhandled protobuf log schema {schema_name!r} on {channel.topic!r}"
                         )
-
-        except Exception as exc:
-            warnings.append(f"Protobuf decoding pass failed: {exc}")
-            logger.warning("Protobuf pass error for %s: %s", filepath, exc)
+            except Exception as exc:
+                warnings.append(f"Protobuf log decode pass failed: {exc}")
+                logger.warning("Protobuf iter_messages error for %s: %s", filepath, exc)
 
     # ── Finalise ──────────────────────────────────────────────────────────────
     dur = (end_time - start_time) if start_time is not None and end_time is not None else 0.0
 
-    # Assign sequential IDs and sort by relative timestamp
     logs.sort(key=lambda l: l["t"])
     for idx, log in enumerate(logs):
         log["id"] = f"l_{idx + 1}"
 
-    total_messages = 0
     for td in topics_dict.values():
+        td.pop("encoding", None)  # internal field, strip from response
         td["hz"] = round(td["msgs"] / dur, 2) if dur > 0 else 0.0
-        total_messages += td["msgs"]
+
+    total_messages = sum(td["msgs"] for td in topics_dict.values())
 
     return {
         "ok": True,
