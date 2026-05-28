@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 import json
 import re
 import uuid
@@ -134,7 +134,64 @@ async def create_session(
         "status": "processing"
     }
 
+@router.get("", response_model=List[SessionResponse])
+async def list_sessions(db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(SessionRecord).order_by(SessionRecord.created_at.desc()))
+    records = res.scalars().all()
+    response = []
+    for record in records:
+        topics = []
+        if record.topics_list:
+            try:
+                topics = json.loads(record.topics_list)
+            except Exception:
+                topics = []
+        response.append(SessionResponse(
+            id=record.id,
+            filename=record.filename,
+            filepath=record.filepath,
+            robot_name=record.robot_name,
+            ros_version=record.ros_version,
+            duration_seconds=record.duration_seconds,
+            start_time=record.start_time,
+            end_time=record.end_time,
+            total_messages=record.total_messages,
+            topics_list=topics,
+            status=record.status,
+            error_message=record.error_message,
+            created_at=record.created_at
+        ))
+    return response
+
+@router.delete("/{session_id}")
+async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
+    record = res.scalar_one_or_none()
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    try:
+        neo4j_client.clear_session(session_id)
+    except Exception as e:
+        print(f"Error clearing neo4j for session {session_id}: {e}")
+        
+    await db.delete(record)
+    await db.commit()
+    return {"status": "success", "message": f"Session {session_id} deleted"}
+
+@router.delete("")
+async def delete_all_sessions(db: AsyncSession = Depends(get_db)):
+    try:
+        neo4j_client.run_query("MATCH (n) DETACH DELETE n")
+    except Exception as e:
+        print(f"Error clearing neo4j: {e}")
+        
+    await db.execute(delete(SessionRecord))
+    await db.commit()
+    return {"status": "success", "message": "All sessions cleared"}
+
 @router.get("/{session_id}", response_model=SessionResponse)
+
 async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
     record = res.scalar_one_or_none()

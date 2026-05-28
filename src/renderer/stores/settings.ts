@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { clearAllSessions } from '@renderer/services/api'
+
 
 export const ACCENT_PRESETS = [
   { color: 'oklch(0.74 0.17 235)', label: 'Electric' },
@@ -195,6 +197,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ loading: true })
 
     try {
+      // Clear backend sessions
+      try {
+        await clearAllSessions()
+      } catch (err) {
+        console.error('Failed to clear backend sessions during reset:', err)
+      }
+
       // Clear all keys from settings.json by saving empty strings or resetting defaults
       const keysToReset = [
         'accent_color', 'ui_density', 'mono_freq', 'telemetry_usage', 'telemetry_crash',

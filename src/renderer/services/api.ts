@@ -40,6 +40,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+async function del<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}`)
+  return res.json() as Promise<T>
+}
+
 // ── Raw API response shapes (backend uses snake_case) ─────────────────
 
 interface RawSession {
@@ -48,7 +56,7 @@ interface RawSession {
   robot_name?: string
   duration_seconds?: number
   total_messages?: number
-  topics_list?: string
+  topics_list?: string | string[]
   status: string
 }
 
@@ -82,9 +90,18 @@ interface RawKGraph {
 // ── Normalizers ───────────────────────────────────────────────────────
 
 function normalizeSession(r: RawSession): SessionMeta {
-  const topicsCount = r.topics_list
-    ? (JSON.parse(r.topics_list) as string[]).length
-    : 0
+  let topicsCount = 0
+  if (r.topics_list) {
+    if (typeof r.topics_list === 'string') {
+      try {
+        topicsCount = (JSON.parse(r.topics_list) as string[]).length
+      } catch {
+        topicsCount = 0
+      }
+    } else if (Array.isArray(r.topics_list)) {
+      topicsCount = r.topics_list.length
+    }
+  }
   return {
     id: r.id,
     filename: r.filename,
@@ -230,4 +247,29 @@ export function streamChat(
     })
 
   return ac
+}
+
+export async function getSessions(): Promise<SessionMeta[]> {
+  const raw = await get<RawSession[]>('/api/sessions')
+  return raw.map(normalizeSession)
+}
+
+export async function deleteSession(id: string): Promise<{ status: string; message: string }> {
+  return del<{ status: string; message: string }>(`/api/sessions/${id}`)
+}
+
+export async function clearAllSessions(): Promise<{ status: string; message: string }> {
+  return del<{ status: string; message: string }>('/api/sessions')
+}
+
+export async function testApiKey(
+  provider: string,
+  key: string,
+  endpoint?: string,
+): Promise<{ status: string; message: string }> {
+  return post<{ status: string; message: string }>('/api/settings/test-key', {
+    provider,
+    key,
+    endpoint,
+  })
 }

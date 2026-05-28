@@ -15,7 +15,9 @@ from app.db_sqlite import init_db
 from app.api.sessions import router as sessions_router
 from app.api.chat import router as chat_router
 from app.api.mcp import router as mcp_router
+from app.api.settings_api import router as settings_router
 from app.services.neo4j_client import neo4j_client
+
 
 
 @asynccontextmanager
@@ -59,6 +61,8 @@ app.add_middleware(
 app.include_router(sessions_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(mcp_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+
 
 
 @app.get("/health")

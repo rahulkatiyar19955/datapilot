@@ -11,6 +11,7 @@ import type {
 
 interface SessionState {
   pendingPath: string | null
+  pendingSessionId: string | null
   sessionId: string | null
   status: SessionStatus
   meta: SessionMeta | null
@@ -20,6 +21,7 @@ interface SessionState {
   kgraph: KGraphData | null
 
   setPendingPath: (path: string | null) => void
+  setPendingSessionId: (id: string | null) => void
   setSession: (id: string, meta: SessionMeta) => void
   setStatus: (status: SessionStatus) => void
   setTabData: (tab: WorkspaceTab, data: unknown) => void
@@ -28,6 +30,7 @@ interface SessionState {
 
 export const useSessionStore = create<SessionState>((set) => ({
   pendingPath: null,
+  pendingSessionId: null,
   sessionId: null,
   status: 'idle',
   meta: null,
@@ -36,7 +39,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   logs: [],
   kgraph: null,
 
-  setPendingPath: (pendingPath) => set({ pendingPath }),
+  setPendingPath: (pendingPath) => set({ pendingPath, pendingSessionId: null }),
+  setPendingSessionId: (pendingSessionId) => set({ pendingSessionId, pendingPath: null }),
 
   setSession: (id, meta) =>
     set({ sessionId: id, meta, status: meta.status }),
@@ -53,6 +57,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   clearSession: () =>
     set({
       sessionId: null,
+      pendingSessionId: null,
       status: 'idle',
       meta: null,
       timeline: [],

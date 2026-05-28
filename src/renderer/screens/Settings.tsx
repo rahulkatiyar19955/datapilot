@@ -4,6 +4,8 @@ import { Toggle } from '@renderer/components/ui'
 import { useTheme } from '@renderer/hooks/useTheme'
 import type { Theme } from '@renderer/hooks/useTheme'
 import { useSettingsStore, ACCENT_PRESETS } from '@renderer/stores/settings'
+import * as api from '@renderer/services/api'
+
 
 // ---------------------------------------------------------------------------
 // Data
@@ -214,12 +216,38 @@ function KeyInput({
 }): JSX.Element {
   const [reveal, setReveal] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [localStatus, setLocalStatus] = useState<'idle' | 'testing' | 'success' | 'error'>(
+    status === 'connected' ? 'success' : status === 'error' ? 'error' : 'idle'
+  )
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLocalStatus(status === 'connected' ? 'success' : status === 'error' ? 'error' : 'idle')
+    setErrorMsg(null)
+  }, [status, value])
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(value).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
+  }
+
+  const handleTest = async () => {
+    if (!value && provider.id !== 'ollama') {
+      alert(`Cannot test connection: No API key configured for ${provider.name}.`)
+      return
+    }
+    setLocalStatus('testing')
+    setErrorMsg(null)
+    try {
+      const endpoint = provider.id === 'custom' ? customEndpoint : provider.endpoint
+      await api.testApiKey(provider.id, value, endpoint)
+      setLocalStatus('success')
+    } catch (err: any) {
+      setLocalStatus('error')
+      setErrorMsg(err.message || 'Verification failed')
+    }
   }
 
   return (
@@ -244,15 +272,22 @@ function KeyInput({
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-0)' }}>
               {provider.name}
             </span>
-            {status === 'connected' && (
+            {localStatus === 'success' && (
               <span className="pill sm ok">
                 <span className="swatch" />connected
               </span>
             )}
-            {status === 'not_set' && <span className="pill sm ghost">no key</span>}
-            {status === 'error' && (
-              <span className="pill sm danger">
-                <span className="swatch" />401 unauthorized
+            {localStatus === 'idle' && (
+              <span className="pill sm ghost">no key</span>
+            )}
+            {localStatus === 'testing' && (
+              <span className="pill sm ghost">
+                <span className="swatch" style={{ animation: 'pulse 1s infinite' }} />testing...
+              </span>
+            )}
+            {localStatus === 'error' && (
+              <span className="pill sm danger" title={errorMsg ?? '401 unauthorized'}>
+                <span className="swatch" />{errorMsg ? errorMsg.substring(0, 30) : '401 unauthorized'}
               </span>
             )}
             {isDefault && (
@@ -320,16 +355,14 @@ function KeyInput({
       <div className="row gap-2" style={{ marginTop: 10 }}>
         <button 
           className="btn ghost sm"
-          onClick={() => {
-            if (!value) {
-              alert(`Cannot test connection: No API key configured for ${provider.name}.`)
-              return
-            }
-            alert(`API Connection test successful for ${provider.name}!`)
-          }}
+          onClick={handleTest}
+          disabled={localStatus === 'testing'}
         >
-          <Icon.Refresh size={11} />
-          Test
+          <Icon.Refresh 
+            size={11} 
+            className={localStatus === 'testing' ? 'spin' : ''} 
+          />
+          {localStatus === 'testing' ? 'Testing...' : 'Test'}
         </button>
         {provider.models.length > 0 && (
           <button 
@@ -684,11 +717,19 @@ function StorageSection(): JSX.Element {
   } = useSettingsStore()
 
   const [cleared, setCleared] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
-  const handleClearCache = () => {
-    setCleared(true)
-    setTimeout(() => setCleared(false), 3000)
-    alert('Local session cache cleared successfully.')
+  const handleClearCache = async () => {
+    setClearing(true)
+    try {
+      await api.clearAllSessions()
+      setCleared(true)
+      setTimeout(() => setCleared(false), 3000)
+    } catch (err: any) {
+      alert(`Failed to clear cache: ${err.message || err}`)
+    } finally {
+      setClearing(false)
+    }
   }
 
   return (
@@ -723,9 +764,16 @@ function StorageSection(): JSX.Element {
             <span>of</span>
             <span>12 GB cap</span>
             <div className="flex1" />
-            <button className="btn ghost sm" onClick={handleClearCache}>
-              <Icon.Trash size={11} />
-              Clear cache
+            <button 
+              className="btn ghost sm" 
+              onClick={handleClearCache}
+              disabled={clearing}
+            >
+              <Icon.Trash 
+                size={11} 
+                className={clearing ? 'spin' : ''} 
+              />
+              {clearing ? 'Clearing...' : 'Clear cache'}
             </button>
           </div>
         </Row>
