@@ -62,7 +62,32 @@ async def chat(
     res = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
     record = res.scalar_one_or_none()
     if not record:
-        raise HTTPException(status_code=404, detail="Session not found")
+        if session_id == "general":
+            record = SessionRecord(
+                id="general",
+                filename="No bag loaded",
+                filepath="",
+                status="ready",
+                robot_name="N/A",
+                ros_version="N/A",
+                duration_seconds=0.0,
+                start_time="",
+                end_time="",
+                total_messages=0,
+                topics_list="[]",
+                timeline_json="[]",
+                topics_json="[]",
+                kgraph_json='{"nodes": [], "edges": []}',
+                replay_json="[]",
+                anomalies_json="[]",
+            )
+            db.add(record)
+            await db.commit()
+            # Re-query to bind to session
+            res = await db.execute(select(SessionRecord).where(SessionRecord.id == "general"))
+            record = res.scalar_one_or_none()
+        else:
+            raise HTTPException(status_code=404, detail="Session not found")
     if record.status != "ready":
         raise HTTPException(status_code=409, detail=f"Session not ready (status={record.status})")
 
@@ -83,6 +108,76 @@ async def chat(
         turn_started = time.perf_counter()
         router_instance = get_router()
 
+        if session_id == "general":
+            try:
+                client = router_instance.for_composer(payload.composer_model)
+                messages = []
+                for turn in transcript:
+                    messages.append({"role": turn["role"], "content": turn["content"]})
+                messages.append({"role": "user", "content": payload.message})
+
+                # Stream plan to make UI feel responsive
+                yield _format_sse("plan", {"plan": []})
+
+                system_prompt = (
+                    "You are DataPilot, an advanced, local-first ROS 2 debugging copilot.\n"
+                    "Right now, no ROS bag file is loaded. Your job is to be helpful and assist the user.\n"
+                    "Guide them on how to load a ROS bag (by clicking the 'Upload rosbag' chip or dragging a file),\n"
+                    "explain what analysis capabilities you have (root cause analysis, anomaly detection, performance profiling,\n"
+                    "tf tree analysis), or answer any general questions they might have about ROS 2, robotics, or debugging."
+                )
+
+                resp = await client.complete(
+                    system=system_prompt,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=1024,
+                )
+                response_text = resp["content"]
+                input_tokens = resp["usage"]["input_tokens"]
+                output_tokens = resp["usage"]["output_tokens"]
+
+                from app.agent.budget import estimate_cost_usd
+                # Create a mock audit trail for cost estimation
+                audit = [{
+                    "step_kind": "general_chat",
+                    "ts": time.perf_counter(),
+                    "tokens_in": input_tokens,
+                    "tokens_out": output_tokens,
+                }]
+
+                envelope = {
+                    "response": response_text,
+                    "plan": [],
+                    "findings": [],
+                    "causal": [],
+                    "audit_trail": audit,
+                    "citations": [],
+                    "usage": {
+                        "tokens_in": input_tokens,
+                        "tokens_out": output_tokens,
+                        "est_cost_usd": estimate_cost_usd(audit),
+                    },
+                    "partial": False
+                }
+
+                yield _format_sse("final", envelope)
+
+                # Persist outside
+                try:
+                    await _persist_turn(db, session_id, payload.message, envelope, turn_started)
+                except Exception:
+                    logger.exception("chat: persistence failed")
+
+            except Exception as exc:
+                logger.exception("chat: general chat failed")
+                yield _format_sse("error", {
+                    "code": "chat_error",
+                    "message": str(exc),
+                    "recoverable": False,
+                })
+            return
+
         # get_checkpointer() returns a SqliteSaver context manager — enter it so
         # the underlying SQLite connection is open for the lifetime of this stream.
         with ExitStack() as stack:
@@ -95,6 +190,7 @@ async def chat(
                 user_message=payload.message,
                 transcript=transcript,
                 session_summary=session_summary,
+                composer_model=payload.composer_model,
             )
             config = {"configurable": {"thread_id": session_id}}
 

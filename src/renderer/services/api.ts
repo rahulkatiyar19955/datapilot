@@ -187,13 +187,19 @@ export function streamChat(
   sessionId: string,
   message: string,
   onEvent: ChatEventHandler,
+  composerProvider?: string,
+  composerModel?: string,
 ): AbortController {
   const ac = new AbortController()
 
   fetch(`${BASE}/api/sessions/${sessionId}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({
+      message,
+      composer_provider: composerProvider,
+      composer_model: composerModel,
+    }),
     signal: ac.signal,
   })
     .then((res) => {

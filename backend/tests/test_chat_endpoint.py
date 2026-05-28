@@ -142,3 +142,31 @@ def test_chat_404_on_missing_session():
         json={"message": "ping"},
     )
     assert response.status_code == 404
+
+
+def test_chat_general_session_works():
+    """General session should automatically initialize and respond via direct composer completion."""
+    with patch("app.api.chat.get_router", return_value=MockRouter()):
+        client = TestClient(app)
+        response = client.post(
+            "/api/sessions/general/chat",
+            json={"message": "ping"},
+        )
+        assert response.status_code == 200
+        events = _parse_sse(response.text)
+
+        event_names = [name for name, _ in events]
+        assert "plan" in event_names
+        assert "final" in event_names
+
+        # Plan should arrive before final, plan is empty
+        assert event_names.index("plan") < event_names.index("final")
+        plan_payload = next(payload for name, payload in events if name == "plan")
+        assert plan_payload["plan"] == []
+
+        final_payload = next(payload for name, payload in events if name == "final")
+        assert "response" in final_payload
+        assert "Navigation aborted" in final_payload["response"]
+        assert final_payload["plan"] == []
+        assert final_payload["findings"] == []
+

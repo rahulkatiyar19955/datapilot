@@ -29,9 +29,15 @@ async def test_key(payload: KeyTestRequest):
             client = anthropic.AsyncAnthropic(api_key=key, base_url=endpoint or None)
             await client.models.list()
         elif provider == "google" or provider == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=key)
-            await asyncio.to_thread(genai.list_models)
+            from google import genai
+            client = genai.Client(api_key=key)
+            # test key by attempting to get the first model
+            models = client.models.list()
+            # iterate just one to test
+            try:
+                next(models)
+            except StopIteration:
+                pass
         elif provider == "ollama":
             import httpx
             # Ollama requires checking the /api/tags endpoint.
@@ -90,9 +96,9 @@ async def list_provider_models(payload: ModelsListRequest):
             return [m.id for m in models_resp.data]
 
         elif provider == "google" or provider == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=key)
-            models_resp = await asyncio.to_thread(genai.list_models)
+            from google import genai
+            client = genai.Client(api_key=key)
+            models_resp = await asyncio.to_thread(client.models.list)
             model_ids = []
             for m in models_resp:
                 name = m.name

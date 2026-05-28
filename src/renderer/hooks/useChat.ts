@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { useChatStore } from '@renderer/stores/chat'
 import { useSessionStore } from '@renderer/stores/session'
+import { useSettingsStore } from '@renderer/stores/settings'
 import * as api from '@renderer/services/api'
 import type { PlanStep, Finding, CausalItem, ChatAction } from '@shared/types'
 
@@ -30,6 +31,8 @@ interface ErrorEventData {
 export function useChat(): UseChatReturn {
   const { addMessage, updateLastMessage, updatePlanStep, setStreaming } = useChatStore()
   const sessionId = useSessionStore((s) => s.sessionId)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const defaultModel = useSettingsStore((s) => s.defaultModel)
   const abortRef = useRef<AbortController | null>(null)
 
   // Abort in-flight stream on unmount
@@ -40,7 +43,7 @@ export function useChat(): UseChatReturn {
   }, [])
 
   const send = (message: string) => {
-    if (!sessionId) return
+    const targetSessionId = sessionId || 'general'
 
     // Abort any in-flight request
     abortRef.current?.abort()
@@ -53,7 +56,7 @@ export function useChat(): UseChatReturn {
     addMessage({ id: assistantId, role: 'assistant', time: now })
     setStreaming(true)
 
-    abortRef.current = api.streamChat(sessionId, message, (event, data) => {
+    abortRef.current = api.streamChat(targetSessionId, message, (event, data) => {
       if (event === 'plan') {
         const planData = data as PlanEventData
         const plan: PlanStep[] = (planData.plan ?? []).map((s) => ({
@@ -84,11 +87,13 @@ export function useChat(): UseChatReturn {
             ? trail.map((step) => ({ text: step.result_summary ?? '' })).filter((c) => c.text)
             : undefined
 
-        const actions: ChatAction[] = [
-          { iconName: 'Clock', label: 'Jump to timeline', target: 'timeline' },
-          { iconName: 'Graph', label: 'See causal graph', target: 'kgraph' },
-          { iconName: 'Activity', label: 'Metric: lidar latency', target: 'metrics' },
-        ]
+        const actions: ChatAction[] = sessionId
+          ? [
+              { iconName: 'Clock', label: 'Jump to timeline', target: 'timeline' },
+              { iconName: 'Graph', label: 'See causal graph', target: 'kgraph' },
+              { iconName: 'Activity', label: 'Metric: lidar latency', target: 'metrics' },
+            ]
+          : []
 
         updateLastMessage((m) => ({
           ...m,
@@ -108,7 +113,7 @@ export function useChat(): UseChatReturn {
         })
         setStreaming(false)
       }
-    })
+    }, defaultProvider, defaultModel)
   }
 
   return { send }

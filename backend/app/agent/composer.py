@@ -118,7 +118,7 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
         })
 
     # 3. Ask the composer LLM to write the prose response.
-    composer_client = router.for_composer()
+    composer_client = router.for_composer(state.get("composer_model"))
     session_summary = state.get("session_summary", "") if isinstance(state, dict) else ""
     facts = {
         "user_question": state["user_message"],

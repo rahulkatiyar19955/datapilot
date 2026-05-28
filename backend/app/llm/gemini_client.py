@@ -61,8 +61,8 @@ class GeminiClient:
     provider = "gemini"
 
     def __init__(self, model_id: str):
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
+        from google import genai
+        self.client = genai.Client(api_key=settings.gemini_api_key)
         self.model_id = model_id
         self._genai = genai
         
@@ -90,43 +90,46 @@ class GeminiClient:
         max_tokens: int = 4096,
         stream: bool = False,
     ) -> CompletionResponse | AsyncIterator[CompletionChunk]:
-        generation_config: dict[str, Any] = {
+        generation_config_dict: dict[str, Any] = {
             "temperature": temperature,
             "max_output_tokens": max_tokens,
+            "system_instruction": system,
         }
         if response_format:
-            generation_config["response_mime_type"] = "application/json"
-            generation_config["response_schema"] = response_format
+            generation_config_dict["response_mime_type"] = "application/json"
+            generation_config_dict["response_schema"] = response_format
 
         if self.thinking_level:
-            generation_config["thinking_config"] = {
+            generation_config_dict["thinking_config"] = {
                 "thinking_budget": 2048 if self.thinking_level == "HIGH" else 1024
             }
 
-        model = self._genai.GenerativeModel(
-            model_name=self.actual_model_name,
-            system_instruction=system,
-            generation_config=generation_config,
-            tools=[{"function_declarations": _to_gemini_function_declarations(tools)}] if tools else None,
-        )
+        if tools:
+            generation_config_dict["tools"] = [{"function_declarations": _to_gemini_function_declarations(tools)}]
 
         contents = _to_gemini_contents(messages)
 
         if stream:
-            return self._stream(model, contents)
+            return self._stream(contents, generation_config_dict)
 
-        # google-generativeai is sync; run in a thread to keep the event loop free.
-        resp = await asyncio.to_thread(model.generate_content, contents)
+        resp = await self.client.aio.models.generate_content(
+            model=self.actual_model_name,
+            contents=contents,
+            config=generation_config_dict,
+        )
+        
         text = resp.text or "" if hasattr(resp, "text") else ""
         tool_calls: list[ToolCall] = []
         for candidate in getattr(resp, "candidates", []) or []:
+            if not getattr(candidate, "content", None):
+                continue
             for part in getattr(candidate.content, "parts", []) or []:
                 fc = getattr(part, "function_call", None)
                 if fc:
                     tool_calls.append({
                         "id": f"gemini_{fc.name}_{len(tool_calls)}",
                         "name": fc.name,
-                        "arguments": dict(fc.args) if fc.args else {},
+                        "arguments": dict(fc.args) if getattr(fc, "args", None) else {},
                     })
 
         usage = getattr(resp, "usage_metadata", None)
@@ -140,12 +143,14 @@ class GeminiClient:
             "finish_reason": "stop",
         }
 
-    async def _stream(self, model: Any, contents: list[dict[str, Any]]) -> AsyncIterator[CompletionChunk]:
-        # google-generativeai's stream is sync — iterate in a thread.
-        loop = asyncio.get_event_loop()
-        stream = await loop.run_in_executor(None, lambda: model.generate_content(contents, stream=True))
+    async def _stream(self, contents: list[dict[str, Any]], config: dict[str, Any]) -> AsyncIterator[CompletionChunk]:
+        stream = await self.client.aio.models.generate_content_stream(
+            model=self.actual_model_name,
+            contents=contents,
+            config=config,
+        )
         last_usage: dict[str, int] | None = None
-        for chunk in stream:
+        async for chunk in stream:
             if hasattr(chunk, "text") and chunk.text:
                 yield {"delta_text": chunk.text}
             if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
