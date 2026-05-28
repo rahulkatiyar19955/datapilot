@@ -1,12 +1,14 @@
-import { useState, type JSX } from 'react'
+import { useState, useEffect, useCallback, type JSX } from 'react'
 import { Icon } from '@renderer/components/Icon'
 import { Input } from '@renderer/components/ui/Input'
 import { useSessionStore } from '@renderer/stores/session'
+import * as api from '@renderer/services/api'
 import type { LogItem } from '@shared/types'
 
 type SevFilter = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG'
 
 const ALL_SEVERITIES: SevFilter[] = ['ERROR', 'WARN', 'INFO', 'DEBUG']
+const PAGE_SIZE = 100
 
 function sevColor(sev: LogItem['sev']): string {
   if (sev === 'ERROR') return 'var(--color-danger)'
@@ -27,9 +29,25 @@ function countBySev(logs: LogItem[], sev: SevFilter): number {
 }
 
 export function LogsView(): JSX.Element {
-  const logs = useSessionStore((s) => s.logs)
+  const sessionId = useSessionStore((s) => s.sessionId)
+  const initialLogs = useSessionStore((s) => s.logs)
+  const setTabData = useSessionStore((s) => s.setTabData)
+
   const [active, setActive] = useState<Set<SevFilter>>(new Set(ALL_SEVERITIES))
   const [search, setSearch] = useState('')
+  const [displayedLogs, setDisplayedLogs] = useState<LogItem[]>(initialLogs)
+  const [loading, setLoading] = useState(false)
+  const [offset, setOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(initialLogs.length === PAGE_SIZE)
+
+  // Whenever the base logs change (new session), reset state
+  useEffect(() => {
+    setDisplayedLogs(initialLogs)
+    setOffset(initialLogs.length)
+    setHasMore(initialLogs.length === PAGE_SIZE)
+    setSearch('')
+    setActive(new Set(ALL_SEVERITIES))
+  }, [initialLogs])
 
   const toggleSev = (sev: SevFilter) => {
     setActive((prev) => {
@@ -40,12 +58,50 @@ export function LogsView(): JSX.Element {
     })
   }
 
-  const filtered = logs.filter(
-    (l) =>
-      active.has(l.sev) &&
-      (!search || l.text.toLowerCase().includes(search.toLowerCase()) ||
-        l.node.toLowerCase().includes(search.toLowerCase())),
+  // Debounced backend search
+  const fetchLogs = useCallback(
+    (q: string, severities: Set<SevFilter>, newOffset = 0) => {
+      if (!sessionId) return
+      setLoading(true)
+      const severityParam = ALL_SEVERITIES.filter((s) => severities.has(s)).join(',')
+      api
+        .getLogs(sessionId, {
+          q: q || undefined,
+          severity: severityParam || undefined,
+          limit: PAGE_SIZE,
+          offset: newOffset,
+        })
+        .then((results) => {
+          if (newOffset === 0) {
+            setDisplayedLogs(results)
+          } else {
+            setDisplayedLogs((prev) => [...prev, ...results])
+          }
+          setOffset(newOffset + results.length)
+          setHasMore(results.length === PAGE_SIZE)
+          // Keep the session store in sync for first-page fetches (no query)
+          if (newOffset === 0 && !q) setTabData('logs', results)
+        })
+        .catch(() => { /* keep previous results on error */ })
+        .finally(() => setLoading(false))
+    },
+    [sessionId, setTabData],
   )
+
+  // Debounce search + severity changes
+  useEffect(() => {
+    if (!sessionId) return
+    const timer = setTimeout(() => {
+      fetchLogs(search, active, 0)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [search, active, sessionId, fetchLogs])
+
+  const loadMore = () => {
+    fetchLogs(search, active, offset)
+  }
+
+  const filtered = displayedLogs
 
   return (
     <div className="col flex1" style={{ minHeight: 0 }}>
@@ -57,12 +113,16 @@ export function LogsView(): JSX.Element {
         <span className="section-h">Logs</span>
         <Input
           size="sm"
-          placeholder="Semantic search in logs… e.g. 'planner abort'"
+          placeholder="Semantic search… e.g. 'planner abort'"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           leading={<Icon.Search size={12} />}
           trailing={
-            <span className="dim mono" style={{ fontSize: 10 }}>⌘K</span>
+            loading ? (
+              <span className="pulse dim mono" style={{ fontSize: 10 }}>…</span>
+            ) : (
+              <span className="dim mono" style={{ fontSize: 10 }}>⌘K</span>
+            )
           }
           style={{ minWidth: 280 }}
         />
@@ -76,7 +136,7 @@ export function LogsView(): JSX.Element {
               onClick={() => toggleSev(sev)}
             >
               {active.has(sev) && sev !== 'DEBUG' && <span className="swatch" />}
-              {sev} ·{countBySev(logs, sev)}
+              {sev} ·{countBySev(displayedLogs, sev)}
             </button>
           ))}
         </div>
@@ -118,7 +178,7 @@ export function LogsView(): JSX.Element {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {filtered.length === 0 && !loading && (
               <tr>
                 <td
                   colSpan={4}
@@ -129,7 +189,7 @@ export function LogsView(): JSX.Element {
                     fontFamily: 'var(--font-ui)',
                   }}
                 >
-                  {logs.length === 0 ? 'No session loaded' : 'No matching log entries'}
+                  {!sessionId ? 'No session loaded' : search ? 'No matching log entries' : 'No logs in this session'}
                 </td>
               </tr>
             )}
@@ -146,7 +206,7 @@ export function LogsView(): JSX.Element {
                       fontSize: 11,
                     }}
                   >
-                    {l.sev.padEnd(5, ' ')}
+                    {l.sev.padEnd(5, ' ')}
                   </span>
                 </td>
                 <td style={{ padding: '7px 12px', color: 'var(--color-accent)', whiteSpace: 'nowrap' }}>
@@ -159,6 +219,21 @@ export function LogsView(): JSX.Element {
             ))}
           </tbody>
         </table>
+
+        {/* Load more */}
+        {hasMore && !loading && (
+          <div style={{ padding: '12px 14px', textAlign: 'center' }}>
+            <button className="btn ghost sm" onClick={loadMore}>
+              <Icon.ChevronDown size={12} />
+              Load more logs
+            </button>
+          </div>
+        )}
+        {loading && filtered.length > 0 && (
+          <div style={{ padding: '12px 14px', textAlign: 'center', fontSize: 11, color: 'var(--color-text-3)' }}>
+            <span className="pulse">Fetching…</span>
+          </div>
+        )}
       </div>
     </div>
   )

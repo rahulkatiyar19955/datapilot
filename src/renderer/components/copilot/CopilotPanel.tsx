@@ -1,16 +1,25 @@
-import { useEffect, useRef, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { Icon } from '@renderer/components/Icon'
 import { useChatStore } from '@renderer/stores/chat'
 import { useSessionStore } from '@renderer/stores/session'
+import { useSettingsStore } from '@renderer/stores/settings'
+import { useUIStore } from '@renderer/stores/ui'
 import { ChatMessage } from './ChatMessage'
 import { ContextChips } from './ContextChips'
 import { CommandBar } from './CommandBar'
+import * as api from '@renderer/services/api'
+import type { SessionMeta } from '@shared/types'
 
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages)
   const clearMessages = useChatStore((s) => s.clearMessages)
-  const { status, meta, clearSession, setPendingPath } = useSessionStore()
+  const { status, clearSession, setPendingPath, pendingPath, setPendingSessionId } = useSessionStore()
+  const { apiKeys, defaultProvider, defaultModel } = useSettingsStore()
+  const { setScreen, setSettingsSectionTarget } = useUIStore()
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const showWarningBanner = defaultProvider !== 'ollama' && !apiKeys[defaultProvider]
+
 
   /**
    * "New session" — clears the chat AND resets the session entirely so the
@@ -24,6 +33,26 @@ export function CopilotPanel(): JSX.Element {
     setPendingPath(null)
   }
 
+  const [showHistory, setShowHistory] = useState(false)
+  const [historySessions, setHistorySessions] = useState<SessionMeta[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+
+  const handleToggleHistory = async () => {
+    const nextVal = !showHistory
+    setShowHistory(nextVal)
+    if (nextVal) {
+      setLoadingHistory(true)
+      try {
+        const data = await api.getSessions()
+        setHistorySessions(data)
+      } catch (err) {
+        console.error('Failed to load sessions history:', err)
+      } finally {
+        setLoadingHistory(false)
+      }
+    }
+  }
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
@@ -31,7 +60,7 @@ export function CopilotPanel(): JSX.Element {
     }
   }, [messages.length])
 
-  const modelLabel = meta ? 'claude-sonnet-4.5' : '—'
+  const modelLabel = (defaultModel || '').trim() || `${defaultProvider} default`
 
   return (
     <div
@@ -53,13 +82,30 @@ export function CopilotPanel(): JSX.Element {
           borderBottom: '1px solid var(--color-border-1)',
           gap: 10,
           flexShrink: 0,
+          position: 'relative',
         }}
       >
         <Icon.Sparkles size={15} />
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-0)' }}>
           Copilot
         </span>
-        <span className="pill sm ghost mono">{modelLabel}</span>
+        <span
+          className="pill sm ghost mono"
+          style={{ maxWidth: 170, minWidth: 0 }}
+          title={modelLabel}
+        >
+          <span
+            style={{
+              display: 'block',
+              maxWidth: '100%',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {modelLabel}
+          </span>
+        </span>
         <div className="flex1" />
         <button
           className="btn ghost icon sm"
@@ -68,10 +114,194 @@ export function CopilotPanel(): JSX.Element {
         >
           <Icon.Plus size={13} />
         </button>
-        <button className="btn ghost icon sm" title="History" disabled>
+        <button 
+          className={`btn ghost icon sm ${showHistory ? 'primary' : ''}`} 
+          title="History" 
+          onClick={handleToggleHistory}
+        >
           <Icon.Clock size={13} />
         </button>
+
+        {showHistory && (
+          <div
+            className="card"
+            style={{
+              position: 'absolute',
+              top: 40,
+              right: 14,
+              width: 320,
+              maxHeight: 300,
+              zIndex: 100,
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: 'var(--shadow-lg)',
+              background: 'var(--color-bg-2)',
+              borderColor: 'var(--color-border-2)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              className="row"
+              style={{
+                padding: '10px 12px',
+                borderBottom: '1px solid var(--color-border-1)',
+                justifyContent: 'space-between',
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-0)' }}>
+                Session History
+              </span>
+              <button
+                className="btn ghost icon sm"
+                style={{ height: 20, width: 20 }}
+                onClick={() => setShowHistory(false)}
+              >
+                <Icon.Check size={12} style={{ color: 'var(--color-ok)' }} />
+              </button>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1, padding: 4 }}>
+              {loadingHistory ? (
+                <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--color-text-3)' }}>
+                  <span className="pulse">Loading history...</span>
+                </div>
+              ) : historySessions.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--color-text-3)' }}>
+                  No past sessions found.
+                </div>
+              ) : (
+                historySessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className="row gap-2"
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'var(--color-bg-3)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent'
+                    }}
+                  >
+                    <div 
+                      className="col flex1" 
+                      style={{ minWidth: 0 }}
+                      onClick={() => {
+                        setPendingSessionId(s.id)
+                        setShowHistory(false)
+                      }}
+                    >
+                      <div 
+                        style={{ 
+                          fontWeight: 500, 
+                          color: 'var(--color-text-1)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                        title={s.filename}
+                      >
+                        {s.filename}
+                      </div>
+                      <div className="dim" style={{ fontSize: 10.5, marginTop: 2 }}>
+                        {s.robot} · {s.durationSeconds.toFixed(1)}s · {s.status}
+                      </div>
+                    </div>
+                    <button
+                      className="btn ghost icon sm"
+                      style={{ height: 24, width: 24, color: 'var(--color-danger)' }}
+                      title="Delete session"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (confirm(`Delete session for ${s.filename}?`)) {
+                          try {
+                            await api.deleteSession(s.id)
+                            setHistorySessions((prev) => prev.filter((item) => item.id !== s.id))
+                          } catch (err) {
+                            alert('Failed to delete session')
+                          }
+                        }
+                      }}
+                    >
+                      <Icon.Trash size={11} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Model Connection Warning Banner */}
+      {showWarningBanner && (
+        <div
+          style={{
+            margin: '12px 14px 4px 14px',
+            padding: '12px',
+            borderRadius: '8px',
+            background: 'var(--color-warn-bg)',
+            border: '1px solid var(--color-warn-border)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            boxShadow: 'var(--shadow-sm)',
+            animation: 'fadeIn 0.3s ease-out',
+            flexShrink: 0,
+          }}
+        >
+          <div className="row gap-2" style={{ alignItems: 'flex-start' }}>
+            <div style={{ color: 'var(--color-warn-text)', marginTop: 2, flexShrink: 0 }}>
+              <Icon.Sparkles size={16} />
+            </div>
+            <div className="col gap-1" style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-0)' }}>
+                AI Model Not Connected
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--color-text-2)', lineHeight: 1.4 }}>
+                Please configure your <b>{defaultProvider === 'google' ? 'Gemini (Google)' : defaultProvider === 'anthropic' ? 'Claude (Anthropic)' : defaultProvider === 'openai' ? 'OpenAI' : 'Custom'}</b> API key in settings to enable the Copilot.
+              </span>
+            </div>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button
+              className="btn sm"
+              style={{
+                background: 'transparent',
+                color: 'var(--color-warn-text)',
+                border: '1px solid var(--color-warn-border)',
+                borderRadius: '6px',
+                fontSize: 10.5,
+                padding: '3px 8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                fontWeight: 600,
+                transition: 'filter 0.15s ease, transform 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.filter = 'brightness(1.06)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.filter = 'none'
+              }}
+              onClick={() => {
+                setSettingsSectionTarget('models')
+                setScreen('settings')
+              }}
+            >
+              <Icon.Settings size={11} />
+              Open Settings
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Context chips */}
       <ContextChips />
@@ -103,9 +333,27 @@ export function CopilotPanel(): JSX.Element {
                 </span>
               </>
             ) : status === 'error' ? (
-              <span style={{ fontSize: 12, color: 'var(--color-danger)', textAlign: 'center' }}>
-                Failed to load session. Please try again.
-              </span>
+              <div className="col gap-3 items-center justify-center">
+                <span style={{ fontSize: 12, color: 'var(--color-danger)', textAlign: 'center' }}>
+                  Failed to load session. Please try again.
+                </span>
+                <button
+                  className="btn primary sm"
+                  onClick={() => {
+                    const path = pendingPath
+                    if (path) {
+                      setPendingPath(null)
+                      setTimeout(() => {
+                        setPendingPath(path)
+                      }, 50)
+                    }
+                  }}
+                  title="Retry loading session"
+                >
+                  <Icon.Refresh size={12} />
+                  Retry Loading
+                </button>
+              </div>
             ) : (
               <span style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center' }}>
                 Session ready. Ask anything about this run.
@@ -133,16 +381,48 @@ export function CopilotPanel(): JSX.Element {
       {/* Quick-action chips */}
       <div style={{ padding: '8px 14px 4px', flexShrink: 0 }}>
         <div className="row gap-2" style={{ flexWrap: 'wrap' }}>
-          <button className="pill ghost" style={{ cursor: 'pointer', height: 24 }}>
+          <button 
+            className="pill ghost" 
+            style={{ cursor: 'pointer', height: 24 }}
+            onClick={async () => {
+              if (window.datapilot?.file?.pickBag) {
+                try {
+                  const filepath = await window.datapilot.file.pickBag()
+                  if (filepath) {
+                    setPendingPath(filepath)
+                  }
+                } catch (err: any) {
+                  alert(`Failed to pick file: ${err.message || err}`)
+                }
+              } else {
+                alert('File picker is not available in this environment.')
+              }
+            }}
+          >
             <Icon.Upload size={11} /> Upload rosbag
           </button>
-          <button className="pill ghost" style={{ cursor: 'pointer', height: 24 }}>
+          <button
+            className="pill ghost"
+            style={{ height: 24 }}
+            disabled
+            title="Coming soon"
+          >
             <Icon.Wifi size={11} /> Connect live robot
           </button>
-          <button className="pill ghost" style={{ cursor: 'pointer', height: 24 }}>
+          <button
+            className="pill ghost"
+            style={{ height: 24 }}
+            disabled
+            title="Coming soon"
+          >
             <Icon.Search size={11} /> Search past runs
           </button>
-          <button className="pill ghost" style={{ cursor: 'pointer', height: 24 }}>
+          <button
+            className="pill ghost"
+            style={{ height: 24 }}
+            disabled
+            title="Coming soon"
+          >
             <Icon.Layers size={11} /> Compare releases
           </button>
         </div>

@@ -8,7 +8,7 @@
  */
 
 export type DockerStatus =
-  | { state: 'pending' }
+  | { state: 'pending'; progress?: number; step?: string }
   | { state: 'ready' }
   | { state: 'error'; code: DockerErrorCode; message: string }
 
@@ -19,11 +19,21 @@ export type DockerErrorCode =
   | 'port_conflict'
   | 'unknown'
 
+export interface StorageUsage {
+  path: string
+  resolvedPath: string
+  exists: boolean
+  totalBytes: number
+  fileCount: number
+}
+
 export interface DatapilotApi {
   /** Returns the current Electron app version and platform info. Available immediately. */
   app: {
     version(): Promise<string>
     platform(): Promise<NodeJS.Platform>
+    userDataPath(): Promise<string>
+    homePath(): Promise<string>
   }
   /** Controls and monitors the local Docker services stack. */
   docker: {
@@ -61,6 +71,10 @@ export interface DatapilotApi {
   /** Launches file/folder path with host defaults. */
   shell: {
     openPath(path: string): Promise<void>
+  }
+  /** Filesystem usage helpers for renderer panels. */
+  storage: {
+    usage(path: string): Promise<StorageUsage>
   }
 }
 

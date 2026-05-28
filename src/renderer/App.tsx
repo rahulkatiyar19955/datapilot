@@ -9,6 +9,7 @@ import { useTheme } from './hooks/useTheme'
 import { useGlobalShortcut } from './hooks/useGlobalShortcut'
 import { useUIStore } from './stores/ui'
 import { useSessionStore } from './stores/session'
+import { useSettingsStore } from './stores/settings'
 import { WindowChrome, Titlebar, Traffic, Rail, RailButton } from './components/chrome'
 import { Button, Pill } from './components/ui'
 import type { DockerStatus } from '@shared/ipc'
@@ -28,17 +29,19 @@ export function App(): JSX.Element {
   const { theme, toggle: toggleTheme } = useTheme()
   const { screen, setScreen } = useUIStore()
   const { meta: sessionMeta, pendingPath, setPendingPath } = useSessionStore()
+  const loadSettings = useSettingsStore((s) => s.loadSettings)
 
   useGlobalShortcut()
 
   // Initial Docker status + version + subscribe to status changes.
   useEffect(() => {
     if (!window.datapilot) return
+    void loadSettings()
     void window.datapilot.app.version().then(setVersion)
     void window.datapilot.docker.status().then(setDockerStatus)
     const unsubscribe = window.datapilot.docker.onStatusChanged(setDockerStatus)
     return () => unsubscribe()
-  }, [])
+  }, [loadSettings])
 
   // Global drag-and-drop listener for MCAP/bag files
   useEffect(() => {

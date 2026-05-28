@@ -3,10 +3,10 @@ import { Icon } from '@renderer/components/Icon'
 import { SeverityDot } from '@renderer/components/ui/SeverityDot'
 import { useSessionStore } from '@renderer/stores/session'
 import { useUIStore } from '@renderer/stores/ui'
+import * as api from '@renderer/services/api'
 import type { TimelineEvent } from '@shared/types'
 import type { Severity } from '@renderer/components/ui/SeverityDot'
 
-const TOTAL_SECONDS = 100
 const BUCKET_COUNT = 50
 const TICK_INTERVAL = 10
 
@@ -22,9 +22,9 @@ function sevToSeverity(sev: TimelineEvent['sev']): Severity {
   return 'info'
 }
 
-function bucketColor(events: TimelineEvent[], i: number): string {
-  const start = (i / BUCKET_COUNT) * TOTAL_SECONDS
-  const end = ((i + 1) / BUCKET_COUNT) * TOTAL_SECONDS
+function bucketColor(events: TimelineEvent[], i: number, totalSeconds: number): string {
+  const start = (i / BUCKET_COUNT) * totalSeconds
+  const end = ((i + 1) / BUCKET_COUNT) * totalSeconds
   const bucket = events.filter((e) => e.t >= start && e.t < end)
   if (bucket.some((e) => e.sev === 'critical')) return 'var(--color-danger)'
   if (bucket.some((e) => e.sev === 'warning')) return 'var(--color-warn)'
@@ -32,9 +32,9 @@ function bucketColor(events: TimelineEvent[], i: number): string {
   return 'var(--color-bg-3)'
 }
 
-function bucketHeight(events: TimelineEvent[], i: number): number {
-  const start = (i / BUCKET_COUNT) * TOTAL_SECONDS
-  const end = ((i + 1) / BUCKET_COUNT) * TOTAL_SECONDS
+function bucketHeight(events: TimelineEvent[], i: number, totalSeconds: number): number {
+  const start = (i / BUCKET_COUNT) * totalSeconds
+  const end = ((i + 1) / BUCKET_COUNT) * totalSeconds
   const bucket = events.filter((e) => e.t >= start && e.t < end)
   if (bucket.length === 0) return 0.15
   if (bucket.some((e) => e.sev === 'critical')) return 0.95
@@ -54,17 +54,40 @@ const LANES: Array<{ key: TimelineEvent['type']; label: string; color: string }>
   { key: 'anomaly', label: 'Anomalies', color: 'oklch(0.70 0.18 25)' },
 ]
 
-const TICKS = Array.from({ length: Math.floor(TOTAL_SECONDS / TICK_INTERVAL) + 1 }, (_, i) => i * TICK_INTERVAL)
+const TICKS = (total: number) =>
+  Array.from({ length: Math.floor(total / TICK_INTERVAL) + 1 }, (_, i) => i * TICK_INTERVAL)
 
 export function TimelineView(): JSX.Element {
   const timeline = useSessionStore((s) => s.timeline)
+  const sessionId = useSessionStore((s) => s.sessionId)
+  const meta = useSessionStore((s) => s.meta)
+  const setTabData = useSessionStore((s) => s.setTabData)
   const selectedEventT = useUIStore((s) => s.selectedEventT)
   const setSelectedEventT = useUIStore((s) => s.setSelectedEventT)
 
   const selectedEvent = timeline.find((e) => e.t === selectedEventT) ?? null
 
-  const maxT = timeline.length > 0 ? Math.max(...timeline.map((e) => e.t)) : TOTAL_SECONDS
-  const displayTotal = Math.max(maxT, TOTAL_SECONDS)
+  // Use real session duration if available, fall back to largest event time
+  const sessionDuration = meta?.durationSeconds ?? 0
+  const maxT = timeline.length > 0 ? Math.max(...timeline.map((e) => e.t)) : 0
+  const TOTAL_SECONDS = Math.max(sessionDuration, maxT, 30)
+  const displayTotal = Math.ceil(TOTAL_SECONDS / TICK_INTERVAL) * TICK_INTERVAL
+  const ticks = TICKS(displayTotal)
+
+  const handleZoomToAnomalies = () => {
+    const anomaly = timeline.find((e) => e.type === 'anomaly')
+    if (anomaly) setSelectedEventT(anomaly.t)
+  }
+
+  const handleRefresh = async () => {
+    if (!sessionId) return
+    try {
+      const fresh = await api.getTimeline(sessionId)
+      setTabData('timeline', fresh)
+    } catch (e) {
+      console.error('Failed to refresh timeline:', e)
+    }
+  }
 
   return (
     <div className="col flex1" style={{ minHeight: 0 }}>
@@ -75,17 +98,17 @@ export function TimelineView(): JSX.Element {
       >
         <span className="section-h">Timeline</span>
         <span className="pill sm ghost mono">
-          00:00 → {formatTick(Math.ceil(displayTotal / 10) * 10)}
+          00:00 → {formatTick(displayTotal)}
         </span>
         <div className="flex1" />
-        <button className="btn ghost sm">
+        <button className="btn ghost sm" onClick={handleZoomToAnomalies} disabled={!timeline.some((e) => e.type === 'anomaly')}>
           <Icon.Zoom size={12} />
           Zoom to anomalies
         </button>
         <button className="btn ghost icon sm" title="Filter">
           <Icon.Filter size={13} />
         </button>
-        <button className="btn ghost icon sm" title="Refresh">
+        <button className="btn ghost icon sm" title="Refresh" onClick={() => { void handleRefresh() }}>
           <Icon.Refresh size={13} />
         </button>
       </div>
@@ -98,8 +121,8 @@ export function TimelineView(): JSX.Element {
               key={i}
               style={{
                 flex: 1,
-                height: `${bucketHeight(timeline, i) * 100}%`,
-                background: bucketColor(timeline, i),
+                height: `${bucketHeight(timeline, i, TOTAL_SECONDS) * 100}%`,
+                background: bucketColor(timeline, i, TOTAL_SECONDS),
                 borderRadius: 1,
                 opacity: 0.85,
               }}
@@ -119,7 +142,7 @@ export function TimelineView(): JSX.Element {
             borderBottom: '1px dashed var(--color-border-1)',
           }}
         >
-          {TICKS.map((tk) => (
+          {ticks.map((tk) => (
             <div
               key={tk}
               style={{
@@ -163,7 +186,7 @@ export function TimelineView(): JSX.Element {
               {/* Events track */}
               <div style={{ flex: 1, position: 'relative', minHeight: 56 }}>
                 {/* Grid lines */}
-                {TICKS.map((tk) => (
+                {ticks.map((tk) => (
                   <div
                     key={tk}
                     style={{

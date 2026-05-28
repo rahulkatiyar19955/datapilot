@@ -144,26 +144,26 @@ export function KGraphView(): JSX.Element {
           ))}
         </svg>
 
-        {/* Inference card */}
-        <div
-          className="panel"
-          style={{
-            position: 'absolute',
-            bottom: 14,
-            left: 14,
-            padding: '10px 12px',
-            maxWidth: 320,
-          }}
-        >
-          <div className="section-h" style={{ marginBottom: 4 }}>DataPilot inference</div>
-          <div style={{ fontSize: 12, color: 'var(--color-text-1)', lineHeight: 1.5 }}>
-            Sensor dropout cascaded through costmap inflation to a planner abort.
-            Confidence:{' '}
-            <span className="mono" style={{ color: 'var(--color-ok)' }}>0.94</span>.
-            Explored 24 alternate paths, ruled out 18.
+        {/* Inference card — shown only when graph has nodes */}
+        {nodes.length > 0 && (
+          <div
+            className="panel"
+            style={{
+              position: 'absolute',
+              bottom: 14,
+              left: 14,
+              padding: '10px 12px',
+              maxWidth: 320,
+            }}
+          >
+            <div className="section-h" style={{ marginBottom: 4 }}>Causal graph</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-1)', lineHeight: 1.5 }}>
+              {nodes.length} nodes · {edges.length} causal edges extracted from this session.
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
 }
+

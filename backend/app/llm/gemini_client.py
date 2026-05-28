@@ -65,6 +65,19 @@ class GeminiClient:
         genai.configure(api_key=settings.gemini_api_key)
         self.model_id = model_id
         self._genai = genai
+        
+        # Parse actual model name and thinking configuration settings
+        self.actual_model_name = model_id
+        self.thinking_level = None
+        
+        if "gemini-3.5-flash" in model_id:
+            self.actual_model_name = "gemini-3.5-flash"
+            if "medium" in model_id.lower():
+                self.thinking_level = "MEDIUM"
+            elif "high" in model_id.lower():
+                self.thinking_level = "HIGH"
+        elif "gemini-3.1-pro" in model_id:
+            self.actual_model_name = "gemini-3.1-pro-preview"
 
     async def complete(
         self,
@@ -85,8 +98,13 @@ class GeminiClient:
             generation_config["response_mime_type"] = "application/json"
             generation_config["response_schema"] = response_format
 
+        if self.thinking_level:
+            generation_config["thinking_config"] = {
+                "thinking_budget": 2048 if self.thinking_level == "HIGH" else 1024
+            }
+
         model = self._genai.GenerativeModel(
-            model_name=self.model_id,
+            model_name=self.actual_model_name,
             system_instruction=system,
             generation_config=generation_config,
             tools=[{"function_declarations": _to_gemini_function_declarations(tools)}] if tools else None,

@@ -1,8 +1,13 @@
-import { useState, type JSX, type ReactNode } from 'react'
+import { useState, useEffect, type JSX, type ReactNode } from 'react'
 import { Icon } from '@renderer/components/Icon'
 import { Toggle } from '@renderer/components/ui'
 import { useTheme } from '@renderer/hooks/useTheme'
 import type { Theme } from '@renderer/hooks/useTheme'
+import { useSettingsStore, ACCENT_PRESETS } from '@renderer/stores/settings'
+import { useUIStore } from '@renderer/stores/ui'
+import * as api from '@renderer/services/api'
+import type { StorageUsage } from '@shared/ipc'
+
 
 // ---------------------------------------------------------------------------
 // Data
@@ -20,7 +25,7 @@ interface Provider {
 const PROVIDERS: Provider[] = [
   { id: 'anthropic', name: 'Claude (Anthropic)',        models: ['claude-opus-4', 'claude-sonnet-4.5', 'claude-haiku-4.5'], keyHint: 'sk-ant-…',  endpoint: 'https://api.anthropic.com',                  color: 'oklch(0.65 0.14 30)' },
   { id: 'openai',    name: 'OpenAI',                   models: ['gpt-5', 'gpt-5-mini', 'gpt-4.1'],                         keyHint: 'sk-…',      endpoint: 'https://api.openai.com/v1',                  color: 'oklch(0.65 0.14 150)' },
-  { id: 'google',    name: 'Gemini (Google)',           models: ['gemini-2.5-pro', 'gemini-2.5-flash'],                     keyHint: 'AIza…',     endpoint: 'https://generativelanguage.googleapis.com',  color: 'oklch(0.65 0.14 240)' },
+  { id: 'google',    name: 'Gemini (Google)',           models: ['gemini-3.5-flash (medium thinking)', 'gemini-3.5-flash (high thinking)', 'gemini-3.1-pro-preview'],                     keyHint: 'AIza…',     endpoint: 'https://generativelanguage.googleapis.com',  color: 'oklch(0.65 0.14 240)' },
   { id: 'ollama',    name: 'Ollama (local)',            models: ['llama-3.3-70b', 'qwen-2.5-coder-32b'],                    keyHint: '— none —',  endpoint: 'http://localhost:11434',                     color: 'oklch(0.65 0.14 300)' },
   { id: 'custom',    name: 'Custom (OpenAI-compatible)', models: [],                                                         keyHint: 'sk-…',      endpoint: 'https://…',                                  color: 'oklch(0.65 0.05 240)' },
 ]
@@ -33,6 +38,19 @@ const SECTIONS = [
   { id: 'shortcuts', label: 'Shortcuts',          icon: <Icon.Code size={14} /> },
   { id: 'about',     label: 'About',              icon: <Icon.Sparkles size={14} /> },
 ] as const
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIdx = 0
+  while (value >= 1024 && unitIdx < units.length - 1) {
+    value /= 1024
+    unitIdx += 1
+  }
+  const precision = value >= 10 ? 1 : 2
+  return `${value.toFixed(precision)} ${units[unitIdx]}`
+}
 
 type SectionId = (typeof SECTIONS)[number]['id']
 
@@ -91,18 +109,22 @@ interface FieldSelectProps {
   label: string
   options: readonly string[]
   value?: string
+  onChange?: (v: string) => void
   hint?: string
 }
 
-function FieldSelect({ label, options, value, hint }: FieldSelectProps): JSX.Element {
+function FieldSelect({ label, options, value, onChange, hint }: FieldSelectProps): JSX.Element {
   return (
     <div className="col" style={{ gap: 6 }}>
-      <label style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--color-text-2)' }}>
-        {label}
-      </label>
+      {label && (
+        <label style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--color-text-2)' }}>
+          {label}
+        </label>
+      )}
       <div className="input" style={{ height: 32 }}>
         <select
-          defaultValue={value ?? options[0]}
+          value={value ?? options[0]}
+          onChange={onChange ? (e) => onChange(e.target.value) : undefined}
           style={{
             flex: 1,
             background: 'transparent',
@@ -191,6 +213,11 @@ function KeyInput({
   isDefault,
   onSetDefault,
   status,
+  defaultModel,
+  onModelChange,
+  customEndpoint,
+  onEndpointChange,
+  onRefreshModels,
 }: {
   provider: Provider
   value: string
@@ -198,8 +225,70 @@ function KeyInput({
   isDefault: boolean
   onSetDefault: () => void
   status: 'connected' | 'not_set' | 'error'
+  defaultModel?: string
+  onModelChange?: (v: string) => void
+  customEndpoint?: string
+  onEndpointChange?: (v: string) => void
+  onRefreshModels?: (models: string[]) => void
 }): JSX.Element {
   const [reveal, setReveal] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [localStatus, setLocalStatus] = useState<'idle' | 'testing' | 'success' | 'error'>(
+    status === 'connected' ? 'success' : status === 'error' ? 'error' : 'idle'
+  )
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLocalStatus(status === 'connected' ? 'success' : status === 'error' ? 'error' : 'idle')
+    setErrorMsg(null)
+  }, [status, value])
+
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const handleTest = async () => {
+    if (!value && provider.id !== 'ollama') {
+      alert(`Cannot test connection: No API key configured for ${provider.name}.`)
+      return
+    }
+    setLocalStatus('testing')
+    setErrorMsg(null)
+    try {
+      const endpoint = provider.id === 'custom' ? customEndpoint : provider.endpoint
+      await api.testApiKey(provider.id, value, endpoint)
+      setLocalStatus('success')
+    } catch (err: any) {
+      setLocalStatus('error')
+      setErrorMsg(err.message || 'Verification failed')
+    }
+  }
+
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    if (!value && provider.id !== 'ollama') {
+      alert(`Cannot refresh models: No credentials configured for ${provider.name}.`)
+      return
+    }
+    setRefreshing(true)
+    try {
+      const endpoint = provider.id === 'custom' ? customEndpoint : provider.endpoint
+      const fetchedModels = await api.fetchProviderModels(provider.id, value, endpoint)
+      if (onRefreshModels) {
+        onRefreshModels(fetchedModels)
+      }
+      alert(`Successfully fetched ${fetchedModels.length} models for ${provider.name}.`)
+    } catch (err: any) {
+      alert(`Failed to refresh models: ${err.message || err}`)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <div className="card" style={{ padding: 14, marginBottom: 10 }}>
       <div className="row gap-3" style={{ marginBottom: 12 }}>
@@ -222,15 +311,24 @@ function KeyInput({
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-0)' }}>
               {provider.name}
             </span>
-            {status === 'connected' && (
+            {localStatus === 'success' && (
               <span className="pill sm ok">
                 <span className="swatch" />connected
               </span>
             )}
-            {status === 'not_set' && <span className="pill sm ghost">no key</span>}
-            {status === 'error' && (
-              <span className="pill sm danger">
-                <span className="swatch" />401 unauthorized
+            {localStatus === 'idle' && (
+              <span className="pill sm ghost">
+                {provider.id === 'ollama' ? 'not tested' : 'no key'}
+              </span>
+            )}
+            {localStatus === 'testing' && (
+              <span className="pill sm ghost">
+                <span className="swatch" style={{ animation: 'pulse 1s infinite' }} />testing...
+              </span>
+            )}
+            {localStatus === 'error' && (
+              <span className="pill sm danger" title={errorMsg ?? '401 unauthorized'}>
+                <span className="swatch" />{errorMsg ? errorMsg.substring(0, 30) : '401 unauthorized'}
               </span>
             )}
             {isDefault && (
@@ -266,32 +364,66 @@ function KeyInput({
               >
                 {reveal ? <Icon.EyeOff size={12} /> : <Icon.Eye size={12} />}
               </button>
-              <button className="btn ghost icon sm" title="Copy" style={{ height: 22, width: 22 }}>
-                <Icon.Copy size={12} />
+              <button 
+                className="btn ghost icon sm" 
+                title="Copy" 
+                style={{ height: 22, width: 22 }}
+                onClick={handleCopy}
+              >
+                {copied ? <Icon.Check size={12} style={{ color: 'var(--color-ok)' }} /> : <Icon.Copy size={12} />}
               </button>
             </div>
           }
         />
         {provider.models.length > 0 ? (
-          <FieldSelect label="Default model" options={provider.models} />
+          <FieldSelect 
+            label="Default model" 
+            options={provider.models} 
+            value={defaultModel}
+            onChange={onModelChange}
+          />
         ) : (
-          <FieldInput label="Custom endpoint" mono placeholder="https://api.example.com/v1" />
+          <FieldInput 
+            label="Custom endpoint" 
+            mono 
+            placeholder="https://api.example.com/v1" 
+            value={customEndpoint}
+            onChange={onEndpointChange}
+          />
         )}
       </div>
 
       <div className="row gap-2" style={{ marginTop: 10 }}>
-        <button className="btn ghost sm">
-          <Icon.Refresh size={11} />
-          Test
+        <button 
+          className="btn ghost sm"
+          onClick={handleTest}
+          disabled={localStatus === 'testing'}
+        >
+          <Icon.Refresh 
+            size={11} 
+            className={localStatus === 'testing' ? 'spin' : ''} 
+          />
+          {localStatus === 'testing' ? 'Testing...' : 'Test'}
         </button>
-        {provider.models.length > 0 && (
-          <button className="btn ghost sm">
-            <Icon.Download size={11} />
-            Refresh models
+        {provider.id !== 'custom' && (
+          <button 
+            className="btn ghost sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <Icon.Download 
+              size={11} 
+              className={refreshing ? 'spin' : ''} 
+            />
+            {refreshing ? 'Refreshing...' : 'Refresh models'}
           </button>
         )}
         <div className="flex1" />
-        <button className="btn ghost sm" style={{ color: 'var(--color-danger)' }}>
+        <button 
+          className="btn ghost sm" 
+          style={{ color: 'var(--color-danger)' }}
+          onClick={() => onChange('')}
+        >
           <Icon.Trash size={11} />
           Remove
         </button>
@@ -304,14 +436,6 @@ function KeyInput({
 // Section views
 // ---------------------------------------------------------------------------
 
-const ACCENT_PRESETS = [
-  { color: 'oklch(0.74 0.17 235)', label: 'Electric' },
-  { color: 'oklch(0.78 0.17 150)', label: 'Lime' },
-  { color: 'oklch(0.70 0.18 330)', label: 'Magenta' },
-  { color: 'oklch(0.80 0.15 80)',  label: 'Amber' },
-  { color: 'oklch(0.70 0.20 25)',  label: 'Crimson' },
-]
-
 function GeneralSection({
   theme,
   setTheme,
@@ -319,13 +443,17 @@ function GeneralSection({
   theme: Theme
   setTheme: (t: Theme) => void
 }): JSX.Element {
-  const [monoFreq, setMonoFreq] = useState(true)
-  const [telemetryUsage, setTelemetryUsage] = useState(false)
-  const [telemetryCrash, setTelemetryCrash] = useState(true)
+  const {
+    accentColor,
+    uiDensity,
+    monoFreq,
+    telemetryUsage,
+    telemetryCrash,
+    setSetting,
+  } = useSettingsStore()
 
   const handleThemeClick = (key: string) => {
     if (key === 'system') {
-      // Read OS preference and apply it
       const prefersDark = !window.matchMedia?.('(prefers-color-scheme: light)').matches
       setTheme(prefersDark ? 'dark' : 'light')
     } else {
@@ -362,13 +490,14 @@ function GeneralSection({
               <button
                 key={label}
                 className="card"
+                onClick={() => setSetting('accentColor', label)}
                 style={{
                   padding: '4px 10px 4px 4px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
                   cursor: 'pointer',
-                  borderColor: label === 'Electric' ? 'var(--color-accent)' : 'var(--color-border-1)',
+                  borderColor: label === accentColor ? 'var(--color-accent)' : 'var(--color-border-1)',
                 }}
               >
                 <span style={{ width: 22, height: 22, borderRadius: 4, background: color, display: 'block' }} />
@@ -380,7 +509,11 @@ function GeneralSection({
         <Row label="UI density">
           <div className="row gap-2">
             {['Compact', 'Comfortable', 'Spacious'].map((d) => (
-              <button key={d} className={`btn sm ${d === 'Comfortable' ? 'primary' : ''}`}>
+              <button 
+                key={d} 
+                className={`btn sm ${d === uiDensity ? 'primary' : ''}`}
+                onClick={() => setSetting('uiDensity', d)}
+              >
                 {d}
               </button>
             ))}
@@ -390,7 +523,7 @@ function GeneralSection({
           label="Show topic frequencies in mono"
           hint="Render Hz / latency / counters in JetBrains Mono."
         >
-          <Toggle on={monoFreq} onChange={setMonoFreq} label="Mono frequencies" />
+          <Toggle on={monoFreq} onChange={(val) => setSetting('monoFreq', val)} label="Mono frequencies" />
         </Row>
       </SectionCard>
 
@@ -399,10 +532,10 @@ function GeneralSection({
         hint="DataPilot runs entirely on your machine. Nothing leaves unless you turn this on."
       >
         <Row label="Anonymous usage stats">
-          <Toggle on={telemetryUsage} onChange={setTelemetryUsage} label="Anonymous usage stats" />
+          <Toggle on={telemetryUsage} onChange={(val) => setSetting('telemetryUsage', val)} label="Anonymous usage stats" />
         </Row>
         <Row label="Crash reports">
-          <Toggle on={telemetryCrash} onChange={setTelemetryCrash} label="Crash reports" />
+          <Toggle on={telemetryCrash} onChange={(val) => setSetting('telemetryCrash', val)} label="Crash reports" />
         </Row>
       </SectionCard>
     </>
@@ -410,21 +543,25 @@ function GeneralSection({
 }
 
 function ModelsSection(): JSX.Element {
-  const [keys, setKeys] = useState<Record<string, string>>({
-    anthropic: 'sk-ant-api03-************************************',
-    openai:    'sk-proj-************************************',
-    google:    '',
-    ollama:    '',
-    custom:    '',
-  })
-  const [defaultProvider, setDefaultProvider] = useState('anthropic')
+  const {
+    defaultProvider,
+    defaultModel,
+    embeddingModel,
+    apiKeys,
+    setSetting,
+    setApiKey,
+  } = useSettingsStore()
+
+  const [dynamicModels, setDynamicModels] = useState<Record<string, string[]>>({})
 
   const statusFor = (id: string): 'connected' | 'not_set' | 'error' => {
-    if (id === 'ollama') return 'connected'
-    if (!keys[id]) return 'not_set'
-    if (id === 'google') return 'error'
+    if (id === 'ollama') return 'not_set'
+    if (!apiKeys[id]) return 'not_set'
     return 'connected'
   }
+
+  const activeProvider = PROVIDERS.find((p) => p.id === defaultProvider) || PROVIDERS[0]
+  const activeProviderModels = dynamicModels[activeProvider.id] || activeProvider.models
 
   return (
     <>
@@ -433,14 +570,27 @@ function ModelsSection(): JSX.Element {
           <div className="row gap-2">
             <FieldSelect
               label=""
-              options={PROVIDERS.filter((p) => keys[p.id] || p.id === 'ollama').map((p) => p.name)}
-              value="Claude (Anthropic)"
+              options={PROVIDERS.map((p) => p.name)}
+              value={activeProvider.name}
+              onChange={(name) => {
+                const prov = PROVIDERS.find((p) => p.name === name)
+                if (prov) {
+                  setSetting('defaultProvider', prov.id)
+                  const provModels = dynamicModels[prov.id] || prov.models
+                  if (provModels.length > 0) {
+                    setSetting('defaultModel', provModels[0])
+                  }
+                }
+              }}
             />
-            <FieldSelect
-              label=""
-              options={['claude-sonnet-4.5', 'claude-opus-4', 'claude-haiku-4.5']}
-              value="claude-sonnet-4.5"
-            />
+            {activeProviderModels.length > 0 && (
+              <FieldSelect
+                label=""
+                options={activeProviderModels}
+                value={defaultModel}
+                onChange={(model) => setSetting('defaultModel', model)}
+              />
+            )}
           </div>
         </Row>
         <Row label="Embedding model" hint="Used for semantic search across bags.">
@@ -451,7 +601,8 @@ function ModelsSection(): JSX.Element {
               'voyage-3 (Anthropic)',
               'nomic-embed-text (local)',
             ]}
-            value="voyage-3 (Anthropic)"
+            value={embeddingModel}
+            onChange={(m) => setSetting('embeddingModel', m)}
           />
         </Row>
       </SectionCard>
@@ -460,18 +611,40 @@ function ModelsSection(): JSX.Element {
         title="API keys"
         hint="Stored encrypted in your OS keychain. Never sent to DataPilot servers."
       >
-        {PROVIDERS.map((p) => (
-          <KeyInput
-            key={p.id}
-            provider={p}
-            value={keys[p.id] ?? ''}
-            isDefault={defaultProvider === p.id}
-            onSetDefault={() => setDefaultProvider(p.id)}
-            onChange={(v) => setKeys((prev) => ({ ...prev, [p.id]: v }))}
-            status={statusFor(p.id)}
-          />
-        ))}
-        <button className="btn ghost sm" style={{ marginTop: 4 }}>
+        {PROVIDERS.map((p) => {
+          const currentModels = dynamicModels[p.id] || p.models
+          return (
+            <KeyInput
+              key={p.id}
+              provider={{ ...p, models: currentModels }}
+              value={apiKeys[p.id] ?? ''}
+              isDefault={defaultProvider === p.id}
+              onSetDefault={() => {
+                setSetting('defaultProvider', p.id)
+                if (currentModels.length > 0) {
+                  setSetting('defaultModel', currentModels[0])
+                }
+              }}
+              onChange={(v) => setApiKey(p.id, v)}
+              status={statusFor(p.id)}
+              defaultModel={defaultModel}
+              onModelChange={(m) => setSetting('defaultModel', m)}
+              customEndpoint={p.id === 'custom' ? defaultModel : undefined}
+              onEndpointChange={(v) => p.id === 'custom' && setSetting('defaultModel', v)}
+              onRefreshModels={(fetched) => {
+                setDynamicModels((prev) => ({ ...prev, [p.id]: fetched }))
+                if (fetched.length > 0 && !fetched.includes(defaultModel)) {
+                  setSetting('defaultModel', fetched[0])
+                }
+              }}
+            />
+          )
+        })}
+        <button 
+          className="btn ghost sm" 
+          style={{ marginTop: 4 }}
+          onClick={() => alert('Custom providers can be added dynamically in a future update.')}
+        >
           <Icon.Plus size={11} />
           Add another provider
         </button>
@@ -489,7 +662,16 @@ const DOCKER_PRESETS = [
 ] as const
 
 function DockerSection(): JSX.Element {
-  const [gpuPassthrough, setGpuPassthrough] = useState(true)
+  const {
+    dockerSocket,
+    tlsCertPath,
+    defaultRosImage,
+    gpuPassthrough,
+    concurrentWorkers,
+    autoTeardownAfter,
+    setSetting,
+  } = useSettingsStore()
+
   return (
     <>
       <SectionCard
@@ -502,19 +684,29 @@ function DockerSection(): JSX.Element {
               <span className="swatch" />
               Daemon reachable
             </span>
-            <span className="pill ghost mono">v25.0.6 · linux/arm64</span>
+            <span className="pill ghost mono">v25.0.6 · local socket</span>
           </div>
         </Row>
         <Row
           label="Docker socket"
           hint="Path or URL the client connects to. Most setups use the local Unix socket."
         >
-          <FieldInput mono placeholder="unix:///var/run/docker.sock" value="unix:///var/run/docker.sock" />
+          <FieldInput 
+            mono 
+            placeholder="unix:///var/run/docker.sock" 
+            value={dockerSocket} 
+            onChange={(v) => setSetting('dockerSocket', v)}
+          />
         </Row>
         <Row label="Quick presets">
           <div className="row gap-2" style={{ flexWrap: 'wrap' }}>
-            {DOCKER_PRESETS.map(([, label]) => (
-              <button key={label} className="pill ghost" style={{ cursor: 'pointer', height: 26 }}>
+            {DOCKER_PRESETS.map(([val, label]) => (
+              <button 
+                key={label} 
+                className="pill ghost" 
+                style={{ cursor: 'pointer', height: 26 }}
+                onClick={() => setSetting('dockerSocket', val)}
+              >
                 <Icon.Plug size={11} />
                 {label}
               </button>
@@ -522,7 +714,12 @@ function DockerSection(): JSX.Element {
           </div>
         </Row>
         <Row label="TLS certificate path" hint="Only needed for remote engines secured with mTLS.">
-          <FieldInput mono placeholder="~/.docker/certs/" />
+          <FieldInput 
+            mono 
+            placeholder="~/.docker/certs/" 
+            value={tlsCertPath}
+            onChange={(v) => setSetting('tlsCertPath', v)}
+          />
         </Row>
         <Row label="Default ROS image">
           <FieldSelect
@@ -533,19 +730,25 @@ function DockerSection(): JSX.Element {
               'osrf/ros:jazzy-desktop',
               'datapilot/ros2-replay:latest',
             ]}
+            value={defaultRosImage}
+            onChange={(v) => setSetting('defaultRosImage', v)}
           />
         </Row>
         <Row label="GPU passthrough" hint="Use --gpus all for replay/3D viz workloads when available.">
-          <Toggle on={gpuPassthrough} onChange={setGpuPassthrough} label="GPU passthrough" />
+          <Toggle on={gpuPassthrough} onChange={(v) => setSetting('gpuPassthrough', v)} label="GPU passthrough" />
         </Row>
       </SectionCard>
 
       <SectionCard title="Worker pool" hint="Background containers DataPilot keeps warm.">
         <Row label="Concurrent workers">
           <div className="row gap-2" style={{ alignItems: 'center' }}>
-            <FieldInput type="number" value="4" />
+            <FieldInput 
+              type="number" 
+              value={String(concurrentWorkers)} 
+              onChange={(v) => setSetting('concurrentWorkers', parseInt(v, 10) || 4)}
+            />
             <span className="dim" style={{ fontSize: 11 }}>
-              · 4 of 8 CPU cores
+              · limit parallel extraction tasks
             </span>
           </div>
         </Row>
@@ -553,7 +756,8 @@ function DockerSection(): JSX.Element {
           <FieldSelect
             label=""
             options={['30 seconds', '2 minutes', '10 minutes', 'never']}
-            value="2 minutes"
+            value={autoTeardownAfter}
+            onChange={(v) => setSetting('autoTeardownAfter', v)}
           />
         </Row>
       </SectionCard>
@@ -562,7 +766,52 @@ function DockerSection(): JSX.Element {
 }
 
 function StorageSection(): JSX.Element {
-  const [autoIndex, setAutoIndex] = useState(true)
+  const {
+    cacheDir,
+    bagArchiveRoot,
+    autoIndexBags,
+    chunkWindow,
+    setSetting,
+  } = useSettingsStore()
+
+  const [clearing, setClearing] = useState(false)
+  const [loadingUsage, setLoadingUsage] = useState(false)
+  const [cacheUsage, setCacheUsage] = useState<StorageUsage | null>(null)
+  const [archiveUsage, setArchiveUsage] = useState<StorageUsage | null>(null)
+
+  const refreshUsage = async () => {
+    if (!window.datapilot) return
+    setLoadingUsage(true)
+    try {
+      const [cache, archive] = await Promise.all([
+        window.datapilot.storage.usage(cacheDir),
+        window.datapilot.storage.usage(bagArchiveRoot),
+      ])
+      setCacheUsage(cache)
+      setArchiveUsage(archive)
+    } catch (err) {
+      console.error('Failed to read storage usage:', err)
+    } finally {
+      setLoadingUsage(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshUsage()
+  }, [cacheDir, bagArchiveRoot])
+
+  const handleClearCache = async () => {
+    setClearing(true)
+    try {
+      await api.clearAllSessions()
+      await refreshUsage()
+    } catch (err: any) {
+      alert(`Failed to clear cache: ${err.message || err}`)
+    } finally {
+      setClearing(false)
+    }
+  }
+
   return (
     <>
       <SectionCard
@@ -570,44 +819,80 @@ function StorageSection(): JSX.Element {
         hint="DataPilot caches indexed bags here for instant re-load."
       >
         <Row label="Cache directory">
-          <FieldInput mono value="~/Library/Application Support/DataPilot" />
+          <FieldInput 
+            mono 
+            value={cacheDir} 
+            onChange={(v) => setSetting('cacheDir', v)}
+          />
         </Row>
-        <Row label="Storage used" hint="2,041 indexed messages · 14 bag files · 6 sessions">
-          <div
-            style={{
-              height: 8,
-              background: 'var(--color-bg-3)',
-              borderRadius: 4,
-              overflow: 'hidden',
-              marginBottom: 6,
-            }}
-          >
-            <div
-              style={{ width: '34%', height: '100%', background: 'var(--color-accent)' }}
-            />
+        <Row label="Storage used" hint="Live usage from your local filesystem paths.">
+          <div className="col gap-2" style={{ fontSize: 11.5 }}>
+            <div className="row gap-2 mono">
+              <span className="dim">Cache:</span>
+              <span style={{ color: 'var(--color-text-1)' }}>
+                {loadingUsage ? 'Reading…' : formatBytes(cacheUsage?.totalBytes ?? 0)}
+              </span>
+              <span className="dim">
+                {loadingUsage ? '' : `(${cacheUsage?.fileCount ?? 0} files)`}
+              </span>
+            </div>
+            <div className="row gap-2 mono">
+              <span className="dim">Bag archive:</span>
+              <span style={{ color: 'var(--color-text-1)' }}>
+                {loadingUsage ? 'Reading…' : formatBytes(archiveUsage?.totalBytes ?? 0)}
+              </span>
+              <span className="dim">
+                {loadingUsage ? '' : `(${archiveUsage?.fileCount ?? 0} files)`}
+              </span>
+            </div>
+            <div className="row gap-2 mono">
+              <span className="dim">Total:</span>
+              <span style={{ color: 'var(--color-text-1)' }}>
+                {loadingUsage
+                  ? 'Reading…'
+                  : formatBytes((cacheUsage?.totalBytes ?? 0) + (archiveUsage?.totalBytes ?? 0))}
+              </span>
+            </div>
           </div>
-          <div className="row gap-2 dim mono" style={{ fontSize: 11 }}>
-            <span style={{ color: 'var(--color-text-1)' }}>4.2 GB</span>
-            <span>of</span>
-            <span>12 GB cap</span>
+          <div className="row gap-2" style={{ marginTop: 8 }}>
+            <button className="btn ghost sm" onClick={() => void refreshUsage()} disabled={loadingUsage || clearing}>
+              <Icon.Refresh size={11} className={loadingUsage ? 'spin' : ''} />
+              Refresh
+            </button>
             <div className="flex1" />
-            <button className="btn ghost sm">
-              <Icon.Trash size={11} />
-              Clear cache
+            <button 
+              className="btn ghost sm" 
+              onClick={handleClearCache}
+              disabled={clearing}
+            >
+              <Icon.Trash 
+                size={11} 
+                className={clearing ? 'spin' : ''} 
+              />
+              {clearing ? 'Clearing...' : 'Clear sessions'}
             </button>
           </div>
         </Row>
         <Row label="Bag archive root" hint="Where uploaded rosbags are stored.">
-          <FieldInput mono value="~/datapilot/bags" />
+          <FieldInput 
+            mono 
+            value={bagArchiveRoot} 
+            onChange={(v) => setSetting('bagArchiveRoot', v)}
+          />
         </Row>
       </SectionCard>
 
       <SectionCard title="Indexing" hint="Semantic indexing settings for /search.">
         <Row label="Auto-index new bags">
-          <Toggle on={autoIndex} onChange={setAutoIndex} label="Auto-index new bags" />
+          <Toggle on={autoIndexBags} onChange={(v) => setSetting('autoIndexBags', v)} label="Auto-index new bags" />
         </Row>
         <Row label="Chunk window">
-          <FieldSelect label="" options={['1 sec', '5 sec', '10 sec', '30 sec']} value="5 sec" />
+          <FieldSelect 
+            label="" 
+            options={['1 sec', '5 sec', '10 sec', '30 sec']} 
+            value={chunkWindow} 
+            onChange={(v) => setSetting('chunkWindow', v)}
+          />
         </Row>
       </SectionCard>
     </>
@@ -660,16 +945,43 @@ function ShortcutsSection(): JSX.Element {
   )
 }
 
-function AboutSection({ version }: { version?: string }): JSX.Element {
+function AboutSection(): JSX.Element {
+  const [version, setVersion] = useState('0.1.0')
+  const { updateChannel, setSetting, resetSettings } = useSettingsStore()
+
+  useEffect(() => {
+    if (window.datapilot) {
+      window.datapilot.app.version().then(setVersion)
+    }
+  }, [])
+
+  const handleOpenLogDir = async () => {
+    if (!window.datapilot) return
+    const userData = await window.datapilot.app.userDataPath()
+    await window.datapilot.shell.openPath(userData)
+  }
+
+  const handleReset = async () => {
+    if (confirm('Are you sure you want to reset all configurations to defaults? This will clear all stored API keys.')) {
+      await resetSettings()
+      alert('All settings have been successfully reset.')
+    }
+  }
+
   return (
     <SectionCard title="DataPilot" hint="Local-first AI copilot for ROS/ROS2 engineers.">
       <Row label="Version">
         <span className="mono" style={{ fontSize: 12.5, color: 'var(--color-text-1)' }}>
-          {version ?? '0.1.0'} (build {new Date().getFullYear()}.{String(new Date().getMonth() + 1).padStart(2, '0')}.{String(new Date().getDate()).padStart(2, '0')})
+          {version} (build {new Date().getFullYear()}.{String(new Date().getMonth() + 1).padStart(2, '0')}.{String(new Date().getDate()).padStart(2, '0')})
         </span>
       </Row>
       <Row label="Update channel">
-        <FieldSelect label="" options={['Stable', 'Beta', 'Nightly']} value="Stable" />
+        <FieldSelect 
+          label="" 
+          options={['Stable', 'Beta', 'Nightly']} 
+          value={updateChannel} 
+          onChange={(v) => setSetting('updateChannel', v)}
+        />
       </Row>
       <Row label="License">
         <span className="mono dim" style={{ fontSize: 12 }}>
@@ -677,13 +989,17 @@ function AboutSection({ version }: { version?: string }): JSX.Element {
         </span>
       </Row>
       <Row label="Logs">
-        <button className="btn ghost sm">
+        <button className="btn ghost sm" onClick={handleOpenLogDir}>
           <Icon.Terminal size={11} />
           Open log directory
         </button>
       </Row>
       <Row label="Reset">
-        <button className="btn ghost sm" style={{ color: 'var(--color-danger)' }}>
+        <button 
+          className="btn ghost sm" 
+          style={{ color: 'var(--color-danger)' }}
+          onClick={handleReset}
+        >
           <Icon.Power size={11} />
           Reset all settings
         </button>
@@ -697,8 +1013,17 @@ function AboutSection({ version }: { version?: string }): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export function Settings(): JSX.Element {
-  const [section, setSection] = useState<SectionId>('general')
+  const settingsSectionTarget = useUIStore((s) => s.settingsSectionTarget)
+  const setSettingsSectionTarget = useUIStore((s) => s.setSettingsSectionTarget)
+  const [section, setSection] = useState<SectionId>(settingsSectionTarget ?? 'general')
   const { theme, setTheme } = useTheme()
+  const loading = useSettingsStore((s) => s.loading)
+
+  useEffect(() => {
+    if (!settingsSectionTarget) return
+    setSection(settingsSectionTarget)
+    setSettingsSectionTarget(null)
+  }, [settingsSectionTarget, setSettingsSectionTarget])
 
   const activeLabel = SECTIONS.find((s) => s.id === section)?.label ?? ''
 
@@ -784,10 +1109,17 @@ export function Settings(): JSX.Element {
             {activeLabel}
           </h2>
           <div className="flex1" />
-          <span className="pill sm ok">
-            <span className="swatch" />
-            all changes saved locally
-          </span>
+          {loading ? (
+            <span className="pill sm ghost pulse">
+              <Icon.Refresh size={11} style={{ animation: 'spin 1.4s linear infinite' }} />
+              loading preferences…
+            </span>
+          ) : (
+            <span className="pill sm ok">
+              <span className="swatch" />
+              all changes saved locally
+            </span>
+          )}
         </div>
 
         {/* Scrollable content */}

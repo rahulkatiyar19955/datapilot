@@ -74,7 +74,7 @@ export function DataSourceBar(): JSX.Element {
       {/* Status pills */}
       {isReady && (
         <div className="row gap-2">
-          <span className="pill warn">
+          <span className="pill ok">
             <span className="swatch" />
             parsed
           </span>

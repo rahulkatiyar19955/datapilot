@@ -33,17 +33,63 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
   }, [])
 
   if (status.state === 'pending') {
+    const progress = status.progress ?? 0
+    const stepText = status.step ?? 'Initializing…'
+
     return (
       <div className="setup-container">
-        <div className="setup-card items-center justify-center py-16 text-center">
-          <div className="setup-logo pulse">D</div>
-          <div className="flex flex-col gap-2 mt-6">
-            <h1 className="setup-title pulse">Orchestrating environment</h1>
-            <p className="setup-subtitle">
+        <div className="setup-card fade-in">
+          <div className="setup-header">
+            <div className="setup-logo">D</div>
+            <div className="setup-title-group">
+              <h1 className="setup-title">Environment setup</h1>
+              <p className="setup-subtitle">Orchestrating stack dependencies</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <p className="text-text-2">
               Initializing Neo4j database, FastAPI backend, and MCP workers…
             </p>
+            
+            {/* Glassmorphic progress bar */}
+            <div 
+              style={{
+                width: '100%',
+                height: 8,
+                background: 'var(--color-bg-3)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: 4,
+                overflow: 'hidden',
+                position: 'relative',
+                border: '1px solid var(--color-border-1)',
+                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.2)'
+              }}
+            >
+              <div 
+                style={{
+                  width: `${progress}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, var(--color-accent) 0%, oklch(0.68 0.15 280) 100%)',
+                  borderRadius: 4,
+                  boxShadow: '0 0 12px var(--color-accent)',
+                  transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                }}
+              />
+            </div>
+            
+            {/* Step & percentage details */}
+            <div className="flex justify-between items-center px-1 text-xs">
+              <span className="text-text-2 font-medium truncate max-w-[70%]" title={stepText}>
+                {stepText}
+              </span>
+              <span className="text-accent font-semibold mono">
+                {progress}%
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 mt-8 px-4 py-2 rounded bg-bg-2 border border-border-1 text-text-3 font-mono text-xs">
+          
+          <div className="flex items-center gap-2 px-4 py-2 rounded bg-bg-2 border border-border-1 text-text-3 font-mono text-xs pulse w-fit">
             <Icon.Refresh size={14} style={{ animation: 'spin 1.4s linear infinite' }} />
             <span>docker compose status: pending</span>
           </div>

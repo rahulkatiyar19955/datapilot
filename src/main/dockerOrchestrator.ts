@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, safeStorage } from 'electron'
 import Docker from 'dockerode'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
@@ -23,6 +23,59 @@ class DockerOrchestrator {
     this.docker = new Docker({ socketPath: this.socketPath })
   }
 
+  private getSettings(): Record<string, any> {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+    if (!fs.existsSync(settingsPath)) return {}
+    try {
+      return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+    } catch {
+      return {}
+    }
+  }
+
+  private getSecureKey(key: string): string | null {
+    const settings = this.getSettings()
+    const encryptedValue = settings[`secure_${key}`]
+    if (!encryptedValue) return null
+    try {
+      if (safeStorage.isEncryptionAvailable()) {
+        return safeStorage.decryptString(Buffer.from(encryptedValue, 'base64'))
+      } else {
+        return Buffer.from(encryptedValue, 'base64').toString('utf-8')
+      }
+    } catch (err) {
+      console.error(`Failed to decrypt key in orchestrator: ${key}`, err)
+      return null
+    }
+  }
+
+  private initDocker() {
+    const settings = this.getSettings()
+    const customSocket = settings['docker_socket']
+    this.socketPath = customSocket || (process.platform === 'win32'
+      ? '\\\\.\\pipe\\docker_engine'
+      : '/var/run/docker.sock')
+    this.docker = new Docker({ socketPath: this.socketPath })
+  }
+
+  private resolveHostPath(inputPath: string): string {
+    if (inputPath === '~') return app.getPath('home')
+    if (inputPath.startsWith('~/') || inputPath.startsWith('~\\')) {
+      return path.join(app.getPath('home'), inputPath.slice(2))
+    }
+    if (path.isAbsolute(inputPath)) return inputPath
+    return path.resolve(app.getPath('home'), inputPath)
+  }
+
+  private getBackendDataMountDir(): string {
+    const settings = this.getSettings()
+    const configured = settings['cache_dir']
+    if (typeof configured === 'string' && configured.trim().length > 0) {
+      return this.resolveHostPath(configured.trim())
+    }
+    return app.getPath('userData')
+  }
+
   public getStatus(): DockerStatus {
     return this.status
   }
@@ -39,6 +92,7 @@ class DockerOrchestrator {
    * Verifies connection to the Docker daemon.
    */
   public async verifySocket(): Promise<boolean> {
+    this.initDocker()
     try {
       await this.docker.ping()
       return true
@@ -117,7 +171,7 @@ class DockerOrchestrator {
   public async ensureVolumes(): Promise<void> {
     const result = await this.docker.listVolumes()
     const volumes = result.Volumes || []
-    const requiredVolumes = ['neo4j-data', 'neo4j-logs', 'app-data']
+    const requiredVolumes = ['neo4j-data', 'neo4j-logs']
     for (const vol of requiredVolumes) {
       if (!volumes.some((v) => v.Name === vol)) {
         await this.docker.createVolume({ Name: vol })
@@ -297,11 +351,13 @@ class DockerOrchestrator {
    * Boots the full Docker stack.
    */
   public async ensureStackUp(): Promise<void> {
+    this.initDocker()
     const wasDaemonOff = this.status.state === 'error' && this.status.code === 'daemon_off'
-    this.setStatus({ state: 'pending' })
+    this.setStatus({ state: 'pending', progress: 5, step: 'Verifying Docker socket…' })
 
     if (wasDaemonOff && process.platform === 'darwin') {
       console.log('Attempting to open Docker Desktop on macOS...')
+      this.setStatus({ state: 'pending', progress: 10, step: 'Launching Docker Desktop…' })
       try {
         await execAsync('open -a Docker')
         // Wait 4s for daemon boot sequence
@@ -318,16 +374,24 @@ class DockerOrchestrator {
 
     try {
       console.log('Ensuring Docker network...')
+      this.setStatus({ state: 'pending', progress: 15, step: 'Ensuring Docker network…' })
       await this.ensureNetwork()
+
       console.log('Ensuring Docker volumes...')
+      this.setStatus({ state: 'pending', progress: 20, step: 'Ensuring Docker volumes…' })
       await this.ensureVolumes()
+
       console.log('Ensuring Docker images (build/pull)...')
+      this.setStatus({ state: 'pending', progress: 30, step: 'Pulling and building images…' })
       await this.ensureImages()
 
       const userHome = app.getPath('home')
+      const dataMountDir = this.getBackendDataMountDir()
+      fs.mkdirSync(dataMountDir, { recursive: true })
 
       // Start services in order: Neo4j -> FastAPI Backend -> 5 workers
       console.log('Starting Neo4j...')
+      this.setStatus({ state: 'pending', progress: 50, step: 'Starting Neo4j container…' })
       await this.startContainer('neo4j', {
         Image: 'neo4j:5-community',
         Env: [
@@ -350,27 +414,45 @@ class DockerOrchestrator {
 
       // Wait for Neo4j liveness check
       console.log('Waiting for Neo4j to become healthy...')
+      this.setStatus({ state: 'pending', progress: 60, step: 'Waiting for Neo4j database to start…' })
       const neo4jHealthy = await this.pollLiveness('http://localhost:7474', 30000)
       if (!neo4jHealthy) {
         throw new Error('Neo4j database failed to become healthy within 30 seconds.')
       }
 
       console.log('Starting FastAPI Backend...')
+      this.setStatus({ state: 'pending', progress: 75, step: 'Starting FastAPI Backend container…' })
+
+      const backendEnv = [
+        'NEO4J_URI=bolt://datapilot-neo4j:7687',
+        'NEO4J_USER=neo4j',
+        'NEO4J_PASSWORD=datapilot-local',
+        'DATAPILOT_HOST_MOUNT=/host',
+        'DATAPILOT_DATA_DIR=/data'
+      ]
+
+      const anthropicKey = this.getSecureKey('anthropic')
+      if (anthropicKey) {
+        backendEnv.push(`ANTHROPIC_API_KEY=${anthropicKey}`)
+      }
+      const openaiKey = this.getSecureKey('openai')
+      if (openaiKey) {
+        backendEnv.push(`OPENAI_API_KEY=${openaiKey}`)
+      }
+      const geminiKey = this.getSecureKey('google')
+      if (geminiKey) {
+        backendEnv.push(`GEMINI_API_KEY=${geminiKey}`)
+      }
+
       await this.startContainer('backend', {
         Image: 'datapilot/backend:local',
-        Env: [
-          'NEO4J_URI=bolt://datapilot-neo4j:7687',
-          'NEO4J_USER=neo4j',
-          'NEO4J_PASSWORD=datapilot-local',
-          'DATAPILOT_HOST_MOUNT=/host',
-          'DATAPILOT_DATA_DIR=/data'
-        ],
+        Env: backendEnv,
         HostConfig: {
           PortBindings: {
             '8000/tcp': [{ HostPort: '8000' }]
           },
           Binds: [
-            'app-data:/data',
+            `${dataMountDir}:/data`,
             `${userHome}:/host:ro` // Read-only mount of user home directory
           ],
           NetworkMode: 'datapilot-net'
@@ -379,13 +461,15 @@ class DockerOrchestrator {
 
       // Wait for FastAPI backend liveness check
       console.log('Waiting for Backend to become healthy...')
-      const backendHealthy = await this.pollLiveness('http://localhost:8000/health', 15000)
+      this.setStatus({ state: 'pending', progress: 85, step: 'Waiting for Backend API to start…' })
+      const backendHealthy = await this.pollLiveness('http://localhost:8000/health', 60000)
       if (!backendHealthy) {
-        throw new Error('FastAPI backend failed to become healthy within 15 seconds.')
+        throw new Error('FastAPI backend failed to become healthy within 60 seconds.')
       }
 
       // Start the 5 MCP Workers in parallel
       console.log('Starting MCP workers...')
+      this.setStatus({ state: 'pending', progress: 90, step: 'Starting MCP worker nodes…' })
       const workers = [
         {
           name: 'rosbag-reader',
