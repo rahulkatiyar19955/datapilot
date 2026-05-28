@@ -30,6 +30,8 @@ services:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-datapilot-local}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_server_bolt_telemetry_enabled: "false"
+      NEO4J_dbms_usage__report_enabled: "false"
     volumes:
       - neo4j-data:/data
       - neo4j-logs:/logs

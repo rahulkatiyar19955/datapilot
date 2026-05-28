@@ -22,7 +22,7 @@ def _system_kind(system: str) -> str:
     """Detect which agent's prompt this is."""
     if "DataPilot Supervisor" in system:
         return "supervisor"
-    if "DataPilot Composer" in system:
+    if "DataPilot Composer" in system or "debugging copilot" in system:
         return "composer"
     if "Root Cause Analyst" in system:
         return "rca"

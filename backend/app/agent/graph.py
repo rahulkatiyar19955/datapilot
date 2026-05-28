@@ -59,6 +59,7 @@ def initial_state(
     *,
     transcript: list | None = None,
     session_summary: str = "",
+    composer_model: str | None = None,
 ) -> GraphState:
     """Build a fresh GraphState dict for a turn."""
     return GraphState(
@@ -74,4 +75,5 @@ def initial_state(
         token_budget_remaining=25_000,
         final=None,
         session_summary=session_summary,
+        composer_model=composer_model,
     )

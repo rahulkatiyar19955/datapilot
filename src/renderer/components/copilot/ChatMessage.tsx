@@ -1,8 +1,11 @@
 import type { JSX } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Icon } from '@renderer/components/Icon'
 import { PlanCard } from './PlanCard'
 import { FindingsCard } from './FindingsCard'
 import { CausalChain } from './CausalChain'
+import { useChatStore } from '@renderer/stores/chat'
 import { useUIStore } from '@renderer/stores/ui'
 import type { ChatMessage as ChatMessageType } from '@shared/types'
 import type { WorkspaceTab } from '@shared/types'
@@ -22,6 +25,12 @@ function ActionIcon({ name }: { name: string }): JSX.Element | null {
 export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
   const setTab = useUIStore((s) => s.setTab)
 
+  // True only for the last assistant message while the model is streaming —
+  // used to show the thinking-dots placeholder until content arrives.
+  const isThinking = useChatStore(
+    (s) => s.streaming && s.messages[s.messages.length - 1]?.id === msg.id,
+  )
+
   if (msg.role === 'user') {
     return (
       <div className="row" style={{ justifyContent: 'flex-end', padding: '6px 14px' }}>
@@ -34,6 +43,7 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
           padding: '8px 12px',
           fontSize: 12.5,
           lineHeight: 1.45,
+          whiteSpace: 'pre-wrap',
         }}>
           {msg.text}
         </div>
@@ -76,13 +86,22 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
         )}
       </div>
 
-      {msg.summary && (
-        <div style={{ fontSize: 12.5, color: 'var(--color-text-1)', lineHeight: 1.5, marginBottom: 8 }}>
-          {msg.summary}
+      {/* Animated dots while waiting for the first content to arrive */}
+      {isThinking && !msg.plan?.length && !msg.summary && (
+        <div className="chat-thinking">
+          <span /><span /><span />
         </div>
       )}
 
-      {msg.plan && <PlanCard steps={msg.plan} />}
+      {msg.summary && (
+        <div className="chat-md" style={{ marginBottom: 8 }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {msg.summary}
+          </ReactMarkdown>
+        </div>
+      )}
+
+      {msg.plan && msg.plan.length > 0 && <PlanCard steps={msg.plan} />}
       {msg.findings && <FindingsCard findings={msg.findings} />}
       {msg.causal && <CausalChain items={msg.causal} />}
 

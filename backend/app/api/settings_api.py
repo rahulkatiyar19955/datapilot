@@ -29,9 +29,16 @@ async def test_key(payload: KeyTestRequest):
             client = anthropic.AsyncAnthropic(api_key=key, base_url=endpoint or None)
             await client.models.list()
         elif provider == "google" or provider == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=key)
-            await asyncio.to_thread(genai.list_models)
+            from google import genai
+            client = genai.Client(api_key=key)
+            # Run synchronous SDK call off the event loop to avoid blocking.
+            def _test_connection():
+                models = client.models.list()
+                try:
+                    next(models)
+                except StopIteration:
+                    pass
+            await asyncio.to_thread(_test_connection)
         elif provider == "ollama":
             import httpx
             # Ollama requires checking the /api/tags endpoint.
@@ -90,9 +97,11 @@ async def list_provider_models(payload: ModelsListRequest):
             return [m.id for m in models_resp.data]
 
         elif provider == "google" or provider == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=key)
-            models_resp = await asyncio.to_thread(genai.list_models)
+            from google import genai
+            client = genai.Client(api_key=key)
+            # Eagerly materialize the lazy pager inside the thread so no
+            # synchronous network I/O escapes back to the event loop.
+            models_resp = await asyncio.to_thread(lambda: list(client.models.list()))
             model_ids = []
             for m in models_resp:
                 name = m.name

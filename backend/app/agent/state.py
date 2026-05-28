@@ -144,6 +144,7 @@ class GraphState(TypedDict, total=False):
     user_message: str
     session_summary: str                                         # cached metadata for prompts
     transcript: list[Turn]                                       # full history
+    composer_model: str | None
     plan: list[SpecStep]
     plan_idx: int                                                # current step pointer
     specialist_outputs: dict[str, SpecResult]

@@ -1,10 +1,50 @@
 import os
 import uuid
+import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, Any, List
 import json
 
 from app.services.tf_parser import TFParser
+
+logger = logging.getLogger(__name__)
+
+# The Docker container mounts the host home directory at this path (read-only).
+# Set via the DATAPILOT_HOST_MOUNT env var in dockerOrchestrator.ts.
+_HOST_MOUNT = os.environ.get("DATAPILOT_HOST_MOUNT", "")
+
+
+def _resolve_path(filepath: str) -> str:
+    """Translate a host filesystem path to its Docker-mounted equivalent.
+
+    The orchestrator runs:  -v $HOME:/host:ro  and sets DATAPILOT_HOST_MOUNT=/host
+    So  /Users/kati/Documents/robot.mcap  →  /host/Documents/robot.mcap
+
+    Falls back to the original path when:
+    - Running outside Docker (DATAPILOT_HOST_MOUNT not set)
+    - The original path is already accessible
+    - Translation doesn't help
+    """
+    if os.path.exists(filepath):
+        return filepath  # already accessible — running outside Docker or path is correct
+
+    if not _HOST_MOUNT:
+        return filepath  # no mount env var → not inside Docker, can't translate
+
+    p = Path(filepath)
+    parts = p.parts  # e.g. ('/', 'Users', 'kati', 'Documents', 'robot.mcap')
+
+    # Paths rooted at /Users/<name>/... (macOS) or /home/<name>/... (Linux)
+    if len(parts) > 3 and parts[1] in ("Users", "home"):
+        relative = Path(*parts[3:])  # strips /, Users/home, username
+        translated = str(Path(_HOST_MOUNT) / relative)
+        if os.path.exists(translated):
+            logger.info("Resolved host path %s → %s", filepath, translated)
+            return translated
+
+    logger.warning("Could not resolve path %s (HOST_MOUNT=%s)", filepath, _HOST_MOUNT)
+    return filepath
 
 # High-Fidelity Mock Datasets for Demo Runs
 DEMO_DATASETS = {
@@ -266,45 +306,51 @@ class IngestionParser:
             data["anomalies"] = _derive_anomalies(data.get("timeline_events", []), data["logs"])
             return data
             
-        # If it's a real file that exists, try to parse it
-        if os.path.exists(filepath):
+        # Resolve the path — translates host paths to Docker-mounted equivalents.
+        resolved = _resolve_path(filepath)
+
+        if os.path.exists(resolved):
             try:
-                if filepath.endswith(".mcap"):
-                    return self._parse_mcap(filepath)
-                elif filepath.endswith(".db3"):
-                    return self._parse_db3(filepath)
-            except Exception as e:
-                # If parsing fails, fall back to a basic generic structure
-                pass
-                
-        # Generic Fallback dataset for user uploads
-        fallback_id = str(uuid.uuid4())
+                if resolved.endswith(".mcap"):
+                    return self._parse_mcap(resolved)
+                elif resolved.endswith(".db3"):
+                    return self._parse_db3(resolved)
+                else:
+                    raise ValueError(f"Unsupported file extension: {resolved!r}")
+            except Exception as exc:
+                logger.error("Failed to parse bag %s: %s", resolved, exc, exc_info=True)
+                raise  # surface the error → run_ingestion sets status='error'
+
+        logger.error(
+            "Bag file not found. original=%r  resolved=%r  HOST_MOUNT=%r",
+            filepath, resolved, _HOST_MOUNT,
+        )
+        
+        # Generic fallback for missing bags (expected by tests/demo runs without real data)
         return {
-            "session_id": fallback_id,
+            "session_id": str(uuid.uuid4()),
             "filename": filename,
             "filepath": filepath,
             "robot_name": "GENERIC-ROBOT",
-            "ros_version": "ROS 2",
-            "duration_seconds": 10.0,
+            "ros_version": "ROS 2 Humble",
+            "duration_seconds": 0.0,
             "start_time": datetime.now().isoformat(),
-            "end_time": (datetime.now() + timedelta(seconds=10.0)).isoformat(),
-            "total_messages": 100,
-            "topics": [
-                {"name": "/rosout", "hz": 10.0, "type": "rcl_interfaces/msg/Log", "msgs": 100}
-            ],
-            "timeline_events": [
-                {"t": 1.0, "type": "log", "sev": "info", "topic": "/rosout", "label": "Ingestion successful"}
-            ],
+            "end_time": datetime.now().isoformat(),
+            "total_messages": 0,
+            "topics": [],
+            "timeline_events": [],
             "logs": [
-                {"id": "l_1", "t": "00:00:01.000", "node": "/ingestor", "sev": "INFO", "text": "Generic ingestion complete.", "topic": "/rosout"}
+                {
+                    "id": "l_1",
+                    "t": "00:00:00.000",
+                    "node": "/system",
+                    "sev": "INFO",
+                    "text": f"Bag parsing fallback: file not found - {filepath}",
+                    "topic": "/rosout"
+                }
             ],
             "anomalies": [],
-            "kgraph": {
-                "nodes": [
-                    {"id": "ingestor", "label": "/ingestor node", "group": "node", "x": 100, "y": 100}
-                ],
-                "edges": []
-            },
+            "kgraph": {"nodes": [], "edges": []},
             "frames": [],
             "replay": []
         }
@@ -332,7 +378,7 @@ class IngestionParser:
                 type_name = schema.name if schema else "unknown"
                 topics_dict[channel.topic] = {
                     "name": channel.topic,
-                    "hz": 10.0,  # estimated; real Hz requires timestamp analysis
+                    "hz": 0.0,  # computed below from real timestamps
                     "type": type_name,
                     "msgs": 0,
                 }
@@ -388,6 +434,12 @@ class IngestionParser:
 
         dur = (end_time - start_time) if start_time and end_time else 0.0
 
+        # Compute per-topic Hz from real message counts and bag duration.
+        total_messages = 0
+        for td in topics_dict.values():
+            td["hz"] = round(td["msgs"] / dur, 2) if dur > 0 else 0.0
+            total_messages += td["msgs"]
+
         return {
             "session_id": str(uuid.uuid4()),
             "filename": os.path.basename(filepath),
@@ -397,7 +449,7 @@ class IngestionParser:
             "duration_seconds": dur,
             "start_time": datetime.fromtimestamp(start_time).isoformat() if start_time else None,
             "end_time": datetime.fromtimestamp(end_time).isoformat() if end_time else None,
-            "total_messages": len(logs),
+            "total_messages": total_messages,
             "topics": list(topics_dict.values()),
             "timeline_events": timeline_events,
             "logs": logs,
@@ -427,7 +479,7 @@ class IngestionParser:
                 if connection.topic not in topics_dict:
                     topics_dict[connection.topic] = {
                         "name": connection.topic,
-                        "hz": 10.0,
+                        "hz": 0.0,  # computed below from real timestamps
                         "type": connection.msgtype,
                         "msgs": 0,
                     }
@@ -470,6 +522,12 @@ class IngestionParser:
 
         dur = (end_time - start_time) if start_time and end_time else 0.0
 
+        # Compute per-topic Hz and total bag message count from real data.
+        total_messages = 0
+        for td in topics_dict.values():
+            td["hz"] = round(td["msgs"] / dur, 2) if dur > 0 else 0.0
+            total_messages += td["msgs"]
+
         return {
             "session_id": str(uuid.uuid4()),
             "filename": os.path.basename(filepath),
@@ -479,7 +537,7 @@ class IngestionParser:
             "duration_seconds": dur,
             "start_time": datetime.fromtimestamp(start_time).isoformat() if start_time else None,
             "end_time": datetime.fromtimestamp(end_time).isoformat() if end_time else None,
-            "total_messages": len(logs),
+            "total_messages": total_messages,
             "topics": list(topics_dict.values()),
             "timeline_events": [],
             "logs": logs,
