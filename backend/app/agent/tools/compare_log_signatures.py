@@ -41,8 +41,8 @@ def _collect(session_id: str) -> dict[str, Any]:
     sev_rows = neo4j_client.run_query(_SEVERITY_CYPHER, {"session_id": session_id})
     anom_rows = neo4j_client.run_query(_ANOMALY_CYPHER, {"session_id": session_id})
     return {
-        "log_severity": {r["severity"]: r["count"] for r in sev_rows},
-        "anomaly_severity": {r["severity"]: r["count"] for r in anom_rows},
+        "log_severity": {r["severity"] or "UNKNOWN": r["count"] for r in sev_rows},
+        "anomaly_severity": {r["severity"] or "UNKNOWN": r["count"] for r in anom_rows},
         "total_logs": sum(r["count"] for r in sev_rows),
         "total_anomalies": sum(r["count"] for r in anom_rows),
     }

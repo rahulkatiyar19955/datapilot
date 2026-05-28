@@ -55,7 +55,7 @@ LIMIT 100
 
 def run(args: dict[str, Any]) -> dict[str, Any]:
     session_id = args["session_id"]
-    sig_id = args.get("signature_id", "").lower().strip()
+    sig_id = (args.get("signature_id") or "").lower().strip()
 
     pattern = _SIGNATURES.get(sig_id)
     if not pattern:
