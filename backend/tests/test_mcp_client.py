@@ -11,9 +11,9 @@ def test_unknown_tool_returns_tool_unavailable():
     assert out["error"]["retryable"] is False
 
 
-def test_known_stub_returns_ok_empty():
-    # `find_statistical_outliers` is a stub returning {ok: True, result: []}
-    out = dispatch("anomaly_detector", "find_statistical_outliers", {"session_id": "X"})
+def test_real_tool_returns_ok_empty_when_no_data(mock_neo4j):
+    # Real tool — mock_neo4j returns [] from run_query, so result is empty but ok.
+    out = dispatch("anomaly_detector", "find_statistical_outliers", {"session_id": "X", "topic": "/sensor"})
     assert out["ok"] is True
     assert out["result"] == []
 

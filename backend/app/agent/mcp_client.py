@@ -1,16 +1,16 @@
 """
 MCP-shaped dispatcher with pluggable transport.
 
-Phase 4 contract: `dispatch(worker, tool, args) -> {ok, result | error}`.
-Phase 5 adds a transport switch (`DATAPILOT_MCP_TRANSPORT`):
+`dispatch(worker, tool, args) -> {ok, result | error}`.
+
+Transport is selected by `DATAPILOT_MCP_TRANSPORT`:
   - "stdio"      (production default): JSON-RPC over stdio to the worker
                  subprocesses managed by the Electron orchestrator.
-  - "in_process" (test / dev default via `mock_neo4j` fixture): calls the
-                 worker tool's `run` function in-process — same as Phase 4.
+  - "in_process" (test / dev): calls the worker tool's `run` function
+                 in-process — faster and zero-subprocess overhead.
 
-Specialist call sites are unchanged. `mock_neo4j` autouse fixture in
-`backend/tests/conftest.py` forces `in_process` so all existing tests keep
-passing.
+`mock_neo4j` autouse fixture in `backend/tests/conftest.py` forces
+`in_process` so all tests run without Docker.
 
 Tool catalog is built at import-time by introspecting each tool module's
 WORKER / NAME / DESCRIPTION / INPUT_SCHEMA / OUTPUT_SCHEMA / run.
@@ -30,7 +30,20 @@ from app.agent.tools import (
     read_tf_chain,
     retrieve_logs,
 )
-from app.agent.tools import stubs
+from app.agent.tools import (
+    query_topic_rate,
+    find_statistical_outliers,
+    find_signature_matches,
+    compute_node_cpu,
+    find_rate_regressions,
+    query_commands,
+    query_recoveries,
+    query_safety_rules,
+    compare_metric_distributions,
+    compare_log_signatures,
+    read_diagnostics,
+    format_causal_chain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +69,6 @@ def _descriptor(module: Any) -> ToolDescriptor:
 
 
 # Tool catalog — every tool any specialist can call must be registered here.
-# Phase 5 replaces each module's `run` with a JSON-RPC stub; the descriptor
-# shape and call sites stay identical.
 _REGISTRY: dict[tuple[str, str], ToolDescriptor] = {}
 
 
@@ -66,7 +77,6 @@ def _register(module: Any) -> None:
     _REGISTRY[(desc["worker"], desc["name"])] = desc
 
 
-# Real tools (Phase 4 in-process; Phase 5 swaps body to JSON-RPC).
 for _module in (
     retrieve_logs,
     query_topic,
@@ -77,20 +87,20 @@ for _module in (
 ):
     _register(_module)
 
-# Stubs (return shape-correct empty results until Phase 5 deepens).
+# Real tools (Phase 5 — Neo4j-backed implementations).
 for _module in (
-    stubs.find_outliers,
-    stubs.find_signatures,
-    stubs.query_topic_rate,
-    stubs.compute_node_cpu,
-    stubs.find_rate_regressions,
-    stubs.query_commands,
-    stubs.query_recoveries,
-    stubs.query_safety_rules,
-    stubs.compare_metric_distributions,
-    stubs.compare_log_signatures,
-    stubs.read_diagnostics,
-    stubs.format_causal_chain,
+    query_topic_rate,
+    find_statistical_outliers,
+    find_signature_matches,
+    compute_node_cpu,
+    find_rate_regressions,
+    query_commands,
+    query_recoveries,
+    query_safety_rules,
+    compare_metric_distributions,
+    compare_log_signatures,
+    read_diagnostics,
+    format_causal_chain,
 ):
     _register(_module)
 

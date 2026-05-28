@@ -1,9 +1,9 @@
 """
 `planner_failure_inspector` MCP worker.
 
-Wraps Phase 4's real `app.agent.tools.{find_aborts, query_causal_chain}` plus
-the `query_commands`, `query_recoveries`, `query_safety_rules` stubs. Mirrors
-the canary worker pattern: stdio JSON-RPC + HTTP `/health` on per-worker port.
+Wraps `app.agent.tools.{find_aborts, query_causal_chain, query_commands,
+query_recoveries, query_safety_rules}`.
+Exposes stdio JSON-RPC + HTTP `/health` on port 9003.
 """
 from __future__ import annotations
 
@@ -14,11 +14,7 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 from app.agent.tools import find_aborts, query_causal_chain
-from app.agent.tools.stubs import (
-    query_commands,
-    query_recoveries,
-    query_safety_rules,
-)
+from app.agent.tools import query_commands, query_recoveries, query_safety_rules
 
 from mcp_workers._shared.health import start_health_server
 from mcp_workers._shared.wrap_tool import register_tool
@@ -30,20 +26,28 @@ HEALTH_PORT = int(os.environ.get("PLANNER_FAILURE_INSPECTOR_HEALTH_PORT", "9003"
 
 mcp = FastMCP(WORKER_NAME)
 
-# Real tools.
 register_tool(mcp, find_aborts)
 register_tool(mcp, query_causal_chain)
-# Phase 5 stubs (Phase 5+ deepens once real planner-state parsing lands here).
 register_tool(mcp, query_commands)
 register_tool(mcp, query_recoveries)
 register_tool(mcp, query_safety_rules)
 
 
 def main() -> None:
+    import signal
+    import time
+
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     start_health_server(WORKER_NAME, HEALTH_PORT, lambda: 5)
-    logger.info("%s MCP server starting on stdio", WORKER_NAME)
-    mcp.run()
+    logger.info("%s MCP server ready (health on :%d)", WORKER_NAME, HEALTH_PORT)
+    try:
+        mcp.run()
+    except Exception:
+        logger.exception("MCP stdio loop exited unexpectedly")
+    logger.info("%s stdio closed; staying alive for /health", WORKER_NAME)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    while True:
+        time.sleep(60)
 
 
 if __name__ == "__main__":
