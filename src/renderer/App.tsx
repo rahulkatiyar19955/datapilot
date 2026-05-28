@@ -30,6 +30,7 @@ export function App(): JSX.Element {
   const { screen, setScreen } = useUIStore()
   const { meta: sessionMeta, pendingPath, setPendingPath } = useSessionStore()
   const loadSettings = useSettingsStore((s) => s.loadSettings)
+  const syncKeysToBackend = useSettingsStore((s) => s.syncKeysToBackend)
 
   useGlobalShortcut()
 
@@ -42,6 +43,15 @@ export function App(): JSX.Element {
     const unsubscribe = window.datapilot.docker.onStatusChanged(setDockerStatus)
     return () => unsubscribe()
   }, [loadSettings])
+
+  // Sync API keys to backend only once the backend container is healthy.
+  // This avoids ERR_CONNECTION_REFUSED errors fired at mount time when the
+  // Docker stack is still booting.
+  useEffect(() => {
+    if (dockerStatus.state === 'ready') {
+      void syncKeysToBackend()
+    }
+  }, [dockerStatus.state, syncKeysToBackend])
 
   // Global drag-and-drop listener for MCAP/bag files
   useEffect(() => {

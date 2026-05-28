@@ -34,6 +34,7 @@ interface SettingsState {
   loading: boolean
 
   loadSettings: () => Promise<void>
+  syncKeysToBackend: () => Promise<void>
   setSetting: (key: string, value: string | boolean | number) => Promise<void>
   setApiKey: (provider: string, value: string) => Promise<void>
   resetSettings: () => Promise<void>
@@ -53,6 +54,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     openai: '',
     google: '',
     ollama: '',
+    nvidia: '',
     custom: '',
   },
   dockerSocket: '',
@@ -147,17 +149,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         loading: false,
       })
 
-      // Sync loaded API keys with backend container on startup
-      for (const [provider, key] of Object.entries(apiKeys)) {
-        if (key) {
-          try {
-            await updateBackendKey(provider, key)
-          } catch (err) {
-            console.error(`Failed to sync API key for ${provider} to backend:`, err)
-          }
-        }
-      }
-
       // Apply accent color
       const preset = ACCENT_PRESETS.find(p => p.label === accentColor)
       if (preset) {
@@ -166,6 +157,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     } catch (err) {
       console.error('Failed to load settings:', err)
       set({ loading: false })
+    }
+  },
+
+  // Called by App.tsx once dockerStatus.state === 'ready' so the backend is
+  // guaranteed to be listening before we attempt the POST.
+  syncKeysToBackend: async () => {
+    const { apiKeys } = get()
+    for (const [provider, key] of Object.entries(apiKeys)) {
+      if (key) {
+        try {
+          await updateBackendKey(provider, key)
+        } catch (err) {
+          console.warn(`Failed to sync API key for ${provider} to backend:`, err)
+        }
+      }
     }
   },
 
