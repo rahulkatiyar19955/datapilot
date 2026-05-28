@@ -1,7 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { useSessionStore, setTopicsData } from '@renderer/stores/session'
-import { useChatStore } from '@renderer/stores/chat'
-import { MOCK_CHAT_MESSAGES } from '@renderer/services/mockData'
 import * as api from '@renderer/services/api'
 
 
@@ -78,11 +76,6 @@ export function useSession(pendingPath: string | null): void {
               if (logs.status === 'fulfilled') setTabData('logs', logs.value)
               if (kgraph.status === 'fulfilled') setTabData('kgraph', kgraph.value)
 
-              // MOCK SEED: for phase 6 visual diff
-              if (session_id === 'run-1042') {
-                console.log('SETTING MOCK CHAT MESSAGES:', MOCK_CHAT_MESSAGES)
-                useChatStore.setState({ messages: MOCK_CHAT_MESSAGES })
-              }
             } else if (updated.status === 'error') {
               setStatus('error')
             } else {

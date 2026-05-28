@@ -21,7 +21,7 @@ interface TabDef {
 
 export function Workspace(): JSX.Element {
   const { tab, setTab } = useUIStore()
-  const { timeline, logs, kgraph, status, setPendingPath } = useSessionStore()
+  const { timeline, topics, logs, kgraph, status, setPendingPath } = useSessionStore()
 
   const pickBagFile = async () => {
     if (!window.datapilot) return
@@ -72,13 +72,6 @@ export function Workspace(): JSX.Element {
         <div className="row gap-3">
           <Button variant="primary" onClick={pickBagFile}>
             <Icon.Upload size={14} /> Load ROS bag
-          </Button>
-          <Button
-            onClick={() => {
-              setPendingPath('/sample_bags/lidar_failure.mcap')
-            }}
-          >
-            Load demo bag
           </Button>
         </div>
       </div>
@@ -146,10 +139,10 @@ export function Workspace(): JSX.Element {
   // 3. Ready / Error state: show workspace tabs and side panel.
   const TABS: TabDef[] = [
     { id: 'timeline', label: 'Timeline', icon: <Icon.Clock size={13} />, count: timeline.length || null },
-    { id: 'metrics', label: 'Metrics', icon: <Icon.Activity size={13} />, count: 4 },
-    { id: 'map', label: 'Map', icon: <Icon.Map size={13} />, count: null },
-    { id: 'logs', label: 'Logs', icon: <Icon.Terminal size={13} />, count: logs.length || null },
-    { id: 'kgraph', label: 'Knowledge Graph', icon: <Icon.Graph size={13} />, count: kgraph?.nodes.length ?? null },
+    { id: 'metrics',  label: 'Metrics',  icon: <Icon.Activity size={13} />, count: topics.length || null },
+    { id: 'map',      label: 'Map',      icon: <Icon.Map size={13} />,      count: null },
+    { id: 'logs',     label: 'Logs',     icon: <Icon.Terminal size={13} />, count: logs.length || null },
+    { id: 'kgraph',   label: 'Knowledge Graph', icon: <Icon.Graph size={13} />, count: kgraph?.nodes.length ?? null },
   ]
 
   return (

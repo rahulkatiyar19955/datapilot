@@ -14,13 +14,7 @@ import type {
   SessionStatus,
 } from '@shared/types'
 
-import {
-  MOCK_SESSION_META,
-  MOCK_TIMELINE_EVENTS,
-  MOCK_TOPICS,
-  MOCK_LOGS,
-  MOCK_KGRAPH,
-} from './mockData'
+// mockData import removed — all data now comes from the FastAPI backend
 
 const BASE = 'http://localhost:8000'
 
@@ -116,20 +110,15 @@ function normalizeSession(r: RawSession): SessionMeta {
 // ── Public API ────────────────────────────────────────────────────────
 
 export async function createSession(filepath: string): Promise<{ session_id: string }> {
-  if (filepath.includes('lidar_failure.mcap')) {
-    return { session_id: 'run-1042' }
-  }
   return post<{ session_id: string }>('/api/sessions/create', { filepath })
 }
 
 export async function getSession(id: string): Promise<SessionMeta> {
-  if (id === 'run-1042') return MOCK_SESSION_META
   const raw = await get<RawSession>(`/api/sessions/${id}`)
   return normalizeSession(raw)
 }
 
 export async function getTimeline(id: string): Promise<TimelineEvent[]> {
-  if (id === 'run-1042') return MOCK_TIMELINE_EVENTS
   const raw = await get<RawTimeline[]>(`/api/sessions/${id}/timeline`)
   return raw.map((e) => ({
     t: e.t,
@@ -141,7 +130,6 @@ export async function getTimeline(id: string): Promise<TimelineEvent[]> {
 }
 
 export async function getTopics(id: string): Promise<TopicInfo[]> {
-  if (id === 'run-1042') return MOCK_TOPICS
   const raw = await get<RawTopic[]>(`/api/sessions/${id}/topics`)
   return raw.map((t) => ({
     name: t.name,
@@ -153,13 +141,15 @@ export async function getTopics(id: string): Promise<TopicInfo[]> {
 
 export async function getLogs(
   id: string,
-  filters?: { severity?: string[] },
+  opts?: { q?: string; severity?: string; limit?: number; offset?: number },
 ): Promise<LogItem[]> {
-  if (id === 'run-1042') return MOCK_LOGS
-  let path = `/api/sessions/${id}/logs`
-  if (filters?.severity?.length) {
-    path += `?severity=${filters.severity.join(',')}`
-  }
+  const params = new URLSearchParams()
+  if (opts?.q) params.set('q', opts.q)
+  if (opts?.severity) params.set('severity', opts.severity)
+  if (opts?.limit != null) params.set('limit', String(opts.limit))
+  if (opts?.offset != null) params.set('offset', String(opts.offset))
+  const qs = params.toString()
+  const path = `/api/sessions/${id}/logs${qs ? `?${qs}` : ''}`
   const raw = await get<RawLog[]>(path)
   return raw.map((l) => ({
     t: l.t ?? '',
@@ -170,7 +160,6 @@ export async function getLogs(
 }
 
 export async function getKGraph(id: string): Promise<KGraphData> {
-  if (id === 'run-1042') return MOCK_KGRAPH
   const raw = await get<RawKGraph>(`/api/sessions/${id}/kgraph`)
 
   // Layout positions: if not provided by backend, spread nodes in a grid.
