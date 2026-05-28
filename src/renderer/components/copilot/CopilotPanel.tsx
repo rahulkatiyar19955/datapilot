@@ -14,7 +14,7 @@ export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages)
   const clearMessages = useChatStore((s) => s.clearMessages)
   const { status, clearSession, setPendingPath, pendingPath, setPendingSessionId } = useSessionStore()
-  const { apiKeys, defaultProvider } = useSettingsStore()
+  const { apiKeys, defaultProvider, defaultModel } = useSettingsStore()
   const { setScreen } = useUIStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -60,7 +60,7 @@ export function CopilotPanel(): JSX.Element {
     }
   }, [messages.length])
 
-  const modelLabel = 'claude-sonnet-4.5'
+  const modelLabel = (defaultModel || '').trim() || `${defaultProvider} default`
 
   return (
     <div
@@ -89,7 +89,23 @@ export function CopilotPanel(): JSX.Element {
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-0)' }}>
           Copilot
         </span>
-        <span className="pill sm ghost mono">{modelLabel}</span>
+        <span
+          className="pill sm ghost mono"
+          style={{ maxWidth: 170, minWidth: 0 }}
+          title={modelLabel}
+        >
+          <span
+            style={{
+              display: 'block',
+              maxWidth: '100%',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {modelLabel}
+          </span>
+        </span>
         <div className="flex1" />
         <button
           className="btn ghost icon sm"
@@ -229,20 +245,18 @@ export function CopilotPanel(): JSX.Element {
             margin: '12px 14px 4px 14px',
             padding: '12px',
             borderRadius: '8px',
-            background: 'oklch(0.18 0.04 30 / 0.45)',
-            border: '1px solid oklch(0.65 0.14 30 / 0.25)',
+            background: 'var(--color-warn-bg)',
+            border: '1px solid var(--color-warn-border)',
             display: 'flex',
             flexDirection: 'column',
             gap: 8,
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
+            boxShadow: 'var(--shadow-sm)',
             animation: 'fadeIn 0.3s ease-out',
             flexShrink: 0,
           }}
         >
           <div className="row gap-2" style={{ alignItems: 'flex-start' }}>
-            <div style={{ color: 'oklch(0.7 0.15 35)', marginTop: 2, flexShrink: 0 }}>
+            <div style={{ color: 'var(--color-warn-text)', marginTop: 2, flexShrink: 0 }}>
               <Icon.Sparkles size={16} />
             </div>
             <div className="col gap-1" style={{ flex: 1, minWidth: 0 }}>
@@ -258,9 +272,9 @@ export function CopilotPanel(): JSX.Element {
             <button
               className="btn sm"
               style={{
-                background: 'oklch(0.65 0.14 30 / 0.15)',
-                color: 'oklch(0.75 0.12 30)',
-                border: '1px solid oklch(0.65 0.14 30 / 0.3)',
+                background: 'transparent',
+                color: 'var(--color-warn-text)',
+                border: '1px solid var(--color-warn-border)',
                 borderRadius: '6px',
                 fontSize: 10.5,
                 padding: '3px 8px',
@@ -269,15 +283,13 @@ export function CopilotPanel(): JSX.Element {
                 alignItems: 'center',
                 gap: 4,
                 fontWeight: 600,
-                transition: 'all 0.2s',
+                transition: 'filter 0.15s ease, transform 0.15s ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'oklch(0.65 0.14 30 / 0.3)'
-                e.currentTarget.style.borderColor = 'oklch(0.65 0.14 30 / 0.5)'
+                e.currentTarget.style.filter = 'brightness(1.06)'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'oklch(0.65 0.14 30 / 0.15)'
-                e.currentTarget.style.borderColor = 'oklch(0.65 0.14 30 / 0.3)'
+                e.currentTarget.style.filter = 'none'
               }}
               onClick={() => setScreen('settings')}
             >
