@@ -16,6 +16,8 @@ interface PlanEventData {
 
 interface StepEventData {
   idx: number;
+  confidence?: number;
+  output_summary?: string;
 }
 
 interface FinalEventData {
@@ -86,8 +88,13 @@ export function useChat(): UseChatReturn {
           const { idx } = data as StepEventData;
           updatePlanStep(idx, { active: true });
         } else if (event === "step-done") {
-          const { idx } = data as StepEventData;
-          updatePlanStep(idx, { done: true, active: false });
+          const { idx, confidence, output_summary } = data as StepEventData;
+          updatePlanStep(idx, {
+            done: true,
+            active: false,
+            confidence,
+            outputSummary: output_summary,
+          });
         } else if (event === "final") {
           const final = data as FinalEventData;
 

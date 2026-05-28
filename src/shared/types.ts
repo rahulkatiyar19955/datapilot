@@ -66,6 +66,8 @@ export interface PlanStep {
   label: string;
   done: boolean;
   active: boolean;
+  outputSummary?: string;
+  confidence?: number;
 }
 
 export interface Finding {

@@ -186,7 +186,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Called by App.tsx once dockerStatus.state === 'ready' so the backend is
   // guaranteed to be listening before we attempt the POST.
   syncKeysToBackend: async () => {
-    const { apiKeys, defaultProvider } = get();
+    const { apiKeys, defaultProvider, defaultModel } = get();
     for (const [provider, key] of Object.entries(apiKeys)) {
       if (key) {
         try {
@@ -203,6 +203,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await updateBackendKey("default_provider", defaultProvider);
     } catch (err) {
       console.warn("Failed to sync default_provider to backend:", err);
+    }
+    try {
+      await updateBackendKey("default_model", defaultModel);
+    } catch (err) {
+      console.warn("Failed to sync default_model to backend:", err);
     }
   },
 
@@ -229,12 +234,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         }
       }
 
-      // Keep backend in sync when the default provider changes
+      // Keep backend in sync when the default provider or model changes
       if (key === "defaultProvider") {
         try {
           await updateBackendKey("default_provider", String(value));
         } catch (err) {
           console.warn("Failed to sync default_provider to backend:", err);
+        }
+      }
+      if (key === "defaultModel") {
+        try {
+          await updateBackendKey("default_model", String(value));
+        } catch (err) {
+          console.warn("Failed to sync default_model to backend:", err);
         }
       }
     } catch (err) {

@@ -1,6 +1,12 @@
-import { useState, type JSX } from "react";
+import { useState, useEffect, type JSX } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { Toggle } from "@renderer/components/ui";
+import { useSettingsStore } from "@renderer/stores/settings";
+import {
+  fetchAgentModels,
+  setAgentModel,
+  deleteAgentModel,
+} from "@renderer/services/api";
 
 // ---------------------------------------------------------------------------
 // Data — static in Phase 9; no Zustand store needed
@@ -8,6 +14,7 @@ import { Toggle } from "@renderer/components/ui";
 
 interface AgentDef {
   id: string;
+  specialistId: string;
   name: string;
   desc: string;
   iconName: keyof typeof Icon;
@@ -30,62 +37,68 @@ interface MCPDef {
 const INITIAL_AGENTS: AgentDef[] = [
   {
     id: "rca",
+    specialistId: "RootCauseAnalyst",
     name: "Root Cause Analyst",
     desc: 'Traces failure chains across topics, logs, and TF events. Best for "why did X happen" questions.',
     iconName: "Sparkles",
     color: "var(--color-accent)",
     enabled: true,
-    model: "claude-sonnet-4.5",
+    model: "default",
     calls: 142,
   },
   {
     id: "anomaly",
+    specialistId: "AnomalyDetector",
     name: "Anomaly Detector",
     desc: "Continuously scans sensor streams for statistical outliers and known fault signatures.",
     iconName: "Activity",
     color: "var(--color-warn)",
     enabled: true,
-    model: "claude-sonnet-4.5",
+    model: "default",
     calls: 1284,
   },
   {
     id: "perf",
+    specialistId: "PerformanceProfiler",
     name: "Performance Profiler",
     desc: "Tracks node-level CPU/RAM/topic-rate regressions across runs and releases.",
     iconName: "Cpu",
     color: "oklch(0.70 0.18 330)",
     enabled: true,
-    model: "gpt-5",
+    model: "default",
     calls: 38,
   },
   {
     id: "replay",
+    specialistId: "ReplayNarrator",
     name: "Replay Narrator",
     desc: "Generates step-by-step natural-language commentary while a session is replayed.",
     iconName: "Play",
     color: "var(--color-ok)",
     enabled: false,
-    model: "gemini-3.1-pro-preview",
+    model: "default",
     calls: 12,
   },
   {
     id: "safety",
+    specialistId: "SafetyAuditor",
     name: "Safety Auditor",
     desc: "Flags ISO 26262 / 21448 contraventions in command and recovery histories.",
     iconName: "Alert",
     color: "var(--color-danger)",
     enabled: false,
-    model: "claude-opus-4",
+    model: "default",
     calls: 0,
   },
   {
     id: "compare",
+    specialistId: "ReleaseComparator",
     name: "Release Comparator",
     desc: "Diffs metric distributions between any two bag sets or fleet windows.",
     iconName: "Layers",
     color: "var(--color-accent)",
     enabled: true,
-    model: "claude-sonnet-4.5",
+    model: "default",
     calls: 56,
   },
 ];
@@ -168,14 +181,54 @@ function StatusPill({ status }: { status: MCPDef["status"] }): JSX.Element {
 
 function AgentCard({
   a,
+  overrideModel,
+  defaultModel,
   onToggle,
+  onSaveModel,
+  onResetModel,
 }: {
   a: AgentDef;
+  overrideModel: string | null;
+  defaultModel: string;
   onToggle: (id: string, v: boolean) => void;
+  onSaveModel: (specialistId: string, modelId: string) => Promise<void>;
+  onResetModel: (specialistId: string) => Promise<void>;
 }): JSX.Element {
+  const [isConfiguring, setIsConfiguring] = useState(false);
+  const [modelInput, setModelInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const effectiveModel = overrideModel || defaultModel || "claude-sonnet-4-5-20250929";
   const Comp = Icon[a.iconName] as
     | ((props: { size?: number }) => JSX.Element)
     | undefined;
+
+  function handleOpenConfig() {
+    setModelInput(overrideModel || defaultModel || "");
+    setIsConfiguring(true);
+  }
+
+  async function handleSave() {
+    if (!modelInput.trim()) return;
+    setSaving(true);
+    try {
+      await onSaveModel(a.specialistId, modelInput.trim());
+      setIsConfiguring(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReset() {
+    setSaving(true);
+    try {
+      await onResetModel(a.specialistId);
+      setIsConfiguring(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div
       className="card"
@@ -211,7 +264,12 @@ function AgentCard({
             {a.name}
           </div>
           <div className="mono dim" style={{ fontSize: 10.5, marginTop: 2 }}>
-            {a.model}
+            {effectiveModel}
+            {overrideModel && (
+              <span className="pill sm ok" style={{ marginLeft: 6, fontSize: 9 }}>
+                overridden
+              </span>
+            )}
           </div>
         </div>
         <Toggle
@@ -235,11 +293,78 @@ function AgentCard({
           {a.calls.toLocaleString()} calls · 7d
         </span>
         <div className="flex1" />
-        <button className="btn ghost sm">
+        <button
+          className="btn ghost sm"
+          onClick={handleOpenConfig}
+        >
           <Icon.Settings size={11} />
           Config
         </button>
       </div>
+
+      {/* Inline model config panel */}
+      {isConfiguring && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: "12px",
+            background: "var(--color-bg-1)",
+            borderRadius: 6,
+            border: "1px solid var(--color-border-1)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--color-text-2)",
+              marginBottom: 8,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            Model override
+          </div>
+          <div className="input" style={{ marginBottom: 8 }}>
+            <input
+              value={modelInput}
+              onChange={(e) => setModelInput(e.target.value)}
+              placeholder={`default (${defaultModel})`}
+              style={{ fontSize: 12, fontFamily: "var(--font-mono)" }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") setIsConfiguring(false);
+              }}
+              autoFocus
+            />
+          </div>
+          <div className="row gap-2">
+            <button
+              className="btn ghost sm"
+              onClick={handleReset}
+              disabled={saving || !overrideModel}
+              title="Remove override and use default model"
+            >
+              Reset to default
+            </button>
+            <div className="flex1" />
+            <button
+              className="btn ghost sm"
+              onClick={() => setIsConfiguring(false)}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn primary sm"
+              onClick={handleSave}
+              disabled={saving || !modelInput.trim()}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -480,6 +605,14 @@ export function Agents(): JSX.Element {
   const [routing, setRouting] = useState<"auto" | "parallel" | "manual">(
     "auto",
   );
+  const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>({});
+  const defaultModel = useSettingsStore((s) => s.defaultModel);
+
+  useEffect(() => {
+    fetchAgentModels()
+      .then(setAgentOverrides)
+      .catch(() => {});
+  }, []);
 
   const enabledAgents = agents.filter((a) => a.enabled).length;
   const connectedMcps = mcps.filter((m) => m.status === "connected").length;
@@ -495,6 +628,20 @@ export function Agents(): JSX.Element {
         m.id === id ? { ...m, status: v ? "connected" : "disabled" } : m,
       ),
     );
+
+  const handleSaveModel = async (specialistId: string, modelId: string) => {
+    await setAgentModel(specialistId, modelId);
+    setAgentOverrides((prev) => ({ ...prev, [specialistId]: modelId }));
+  };
+
+  const handleResetModel = async (specialistId: string) => {
+    await deleteAgentModel(specialistId);
+    setAgentOverrides((prev) => {
+      const next = { ...prev };
+      delete next[specialistId];
+      return next;
+    });
+  };
 
   return (
     <div
@@ -583,7 +730,15 @@ export function Agents(): JSX.Element {
               }}
             >
               {agents.map((a) => (
-                <AgentCard key={a.id} a={a} onToggle={handleAgentToggle} />
+                <AgentCard
+                  key={a.id}
+                  a={a}
+                  overrideModel={agentOverrides[a.specialistId] ?? null}
+                  defaultModel={defaultModel}
+                  onToggle={handleAgentToggle}
+                  onSaveModel={handleSaveModel}
+                  onResetModel={handleResetModel}
+                />
               ))}
             </div>
 

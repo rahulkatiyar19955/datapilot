@@ -114,7 +114,12 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
         </div>
       )}
 
-      {msg.plan && msg.plan.length > 0 && <PlanCard steps={msg.plan} />}
+      {msg.plan && msg.plan.length > 0 && (
+        <PlanCard
+          steps={msg.plan}
+          isComposing={isThinking && msg.plan.every((s) => s.done)}
+        />
+      )}
 
       {/* Animated dots — mid/post-plan: shown while steps execute and until summary arrives */}
       {isThinking && !!msg.plan?.length && !msg.summary && (

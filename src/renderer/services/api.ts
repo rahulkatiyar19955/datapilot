@@ -34,6 +34,16 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`PUT ${path} → ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
 async function del<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "DELETE",
@@ -309,4 +319,23 @@ export async function updateBackendKey(
     provider,
     key,
   });
+}
+
+export async function fetchAgentModels(): Promise<Record<string, string>> {
+  return get<Record<string, string>>("/api/settings/agent-models");
+}
+
+export async function setAgentModel(
+  specialist: string,
+  modelId: string,
+): Promise<{ status: string }> {
+  return put<{ status: string }>(`/api/settings/agent-models/${specialist}`, {
+    model_id: modelId,
+  });
+}
+
+export async function deleteAgentModel(
+  specialist: string,
+): Promise<{ status: string }> {
+  return del<{ status: string }>(`/api/settings/agent-models/${specialist}`);
 }
