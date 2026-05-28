@@ -52,7 +52,8 @@ export function App(): JSX.Element {
       const files = e.dataTransfer?.files
       if (files && files.length > 0) {
         const file = files[0]
-        if (file.name.endsWith('.bag') || file.name.endsWith('.mcap') || file.name.endsWith('.db3')) {
+        const lowerName = file.name.toLowerCase()
+        if (lowerName.endsWith('.bag') || lowerName.endsWith('.mcap') || lowerName.endsWith('.db3')) {
           // Electron attaches the local absolute filesystem path to dropped files
           const path = (file as any).path
           if (path) {

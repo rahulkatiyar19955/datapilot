@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { useChatStore } from '@renderer/stores/chat'
 import { useSessionStore } from '@renderer/stores/session'
 import * as api from '@renderer/services/api'
@@ -32,14 +32,12 @@ export function useChat(): UseChatReturn {
   const sessionId = useSessionStore((s) => s.sessionId)
   const abortRef = useRef<AbortController | null>(null)
 
-  // Abort on unmount
-  const cleanup = () => {
-    abortRef.current?.abort()
-  }
-
-  // Register cleanup via a stable ref pattern
-  const cleanupRef = useRef(cleanup)
-  cleanupRef.current = cleanup
+  // Abort in-flight stream on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+    }
+  }, [])
 
   const send = (message: string) => {
     if (!sessionId) return

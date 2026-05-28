@@ -13,7 +13,7 @@ interface ChatMessageProps {
 
 function ActionIcon({ name }: { name: string }): JSX.Element | null {
   const Comp = Icon[name as keyof typeof Icon] as
-    | React.ComponentType<{ size?: number }>
+    | ((props: { size?: number }) => JSX.Element)
     | undefined
   if (!Comp) return null
   return <Comp size={12} />

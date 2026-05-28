@@ -216,6 +216,9 @@ export function streamChat(
             }
           }
           pump()
+        }).catch((err: unknown) => {
+          if (err instanceof Error && err.name === 'AbortError') return
+          onEvent('error', { message: err instanceof Error ? err.message : 'Stream read error' })
         })
       }
 
