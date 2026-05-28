@@ -31,13 +31,14 @@ async def test_key(payload: KeyTestRequest):
         elif provider == "google" or provider == "gemini":
             from google import genai
             client = genai.Client(api_key=key)
-            # test key by attempting to get the first model
-            models = client.models.list()
-            # iterate just one to test
-            try:
-                next(models)
-            except StopIteration:
-                pass
+            # Run synchronous SDK call off the event loop to avoid blocking.
+            def _test_connection():
+                models = client.models.list()
+                try:
+                    next(models)
+                except StopIteration:
+                    pass
+            await asyncio.to_thread(_test_connection)
         elif provider == "ollama":
             import httpx
             # Ollama requires checking the /api/tags endpoint.
@@ -98,7 +99,9 @@ async def list_provider_models(payload: ModelsListRequest):
         elif provider == "google" or provider == "gemini":
             from google import genai
             client = genai.Client(api_key=key)
-            models_resp = await asyncio.to_thread(client.models.list)
+            # Eagerly materialize the lazy pager inside the thread so no
+            # synchronous network I/O escapes back to the event loop.
+            models_resp = await asyncio.to_thread(lambda: list(client.models.list()))
             model_ids = []
             for m in models_resp:
                 name = m.name

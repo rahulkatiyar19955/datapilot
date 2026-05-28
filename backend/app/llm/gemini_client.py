@@ -118,7 +118,12 @@ class GeminiClient:
             config=generation_config_dict,
         )
         
-        text = resp.text or "" if hasattr(resp, "text") else ""
+        # resp.text raises ValueError when the response contains no text parts
+        # (e.g. a pure function-call response). Fall back to empty string.
+        try:
+            text = resp.text or ""
+        except ValueError:
+            text = ""
         tool_calls: list[ToolCall] = []
         for candidate in getattr(resp, "candidates", []) or []:
             if not getattr(candidate, "content", None):
@@ -151,8 +156,13 @@ class GeminiClient:
         )
         last_usage: dict[str, int] | None = None
         async for chunk in stream:
-            if hasattr(chunk, "text") and chunk.text:
-                yield {"delta_text": chunk.text}
+            # chunk.text raises ValueError for non-text chunks (e.g. function calls).
+            try:
+                text = chunk.text
+            except ValueError:
+                text = None
+            if text:
+                yield {"delta_text": text}
             if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
                 last_usage = {
                     "input_tokens": getattr(chunk.usage_metadata, "prompt_token_count", 0),

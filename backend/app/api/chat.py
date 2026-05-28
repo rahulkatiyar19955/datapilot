@@ -63,27 +63,34 @@ async def chat(
     record = res.scalar_one_or_none()
     if not record:
         if session_id == "general":
-            record = SessionRecord(
-                id="general",
-                filename="No bag loaded",
-                filepath="",
-                status="ready",
-                robot_name="N/A",
-                ros_version="N/A",
-                duration_seconds=0.0,
-                start_time="",
-                end_time="",
-                total_messages=0,
-                topics_list="[]",
-                timeline_json="[]",
-                topics_json="[]",
-                kgraph_json='{"nodes": [], "edges": []}',
-                replay_json="[]",
-                anomalies_json="[]",
-            )
-            db.add(record)
-            await db.commit()
-            # Re-query to bind to session
+            # Guard against a race: two concurrent first-time requests could both
+            # find record=None and both try to INSERT id='general', causing an
+            # IntegrityError on the second. Roll back and re-query in that case.
+            try:
+                record = SessionRecord(
+                    id="general",
+                    filename="No bag loaded",
+                    filepath="",
+                    status="ready",
+                    robot_name="N/A",
+                    ros_version="N/A",
+                    duration_seconds=0.0,
+                    start_time="",
+                    end_time="",
+                    total_messages=0,
+                    topics_list="[]",
+                    timeline_json="[]",
+                    topics_json="[]",
+                    kgraph_json='{"nodes": [], "edges": []}',
+                    replay_json="[]",
+                    anomalies_json="[]",
+                )
+                db.add(record)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+            # Re-query to bind to the session (whether we just created it or a
+            # concurrent request did).
             res = await db.execute(select(SessionRecord).where(SessionRecord.id == "general"))
             record = res.scalar_one_or_none()
         else:
@@ -141,7 +148,7 @@ async def chat(
                 # Create a mock audit trail for cost estimation
                 audit = [{
                     "step_kind": "general_chat",
-                    "ts": time.perf_counter(),
+                    "ts": time.time(),
                     "tokens_in": input_tokens,
                     "tokens_out": output_tokens,
                 }]
