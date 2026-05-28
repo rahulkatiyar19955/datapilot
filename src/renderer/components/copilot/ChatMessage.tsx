@@ -1,4 +1,6 @@
 import type { JSX } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Icon } from '@renderer/components/Icon'
 import { PlanCard } from './PlanCard'
 import { FindingsCard } from './FindingsCard'
@@ -34,6 +36,7 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
           padding: '8px 12px',
           fontSize: 12.5,
           lineHeight: 1.45,
+          whiteSpace: 'pre-wrap',
         }}>
           {msg.text}
         </div>
@@ -77,8 +80,10 @@ export function ChatMessage({ msg }: ChatMessageProps): JSX.Element {
       </div>
 
       {msg.summary && (
-        <div style={{ fontSize: 12.5, color: 'var(--color-text-1)', lineHeight: 1.5, marginBottom: 8 }}>
-          {msg.summary}
+        <div className="chat-md" style={{ marginBottom: 8 }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {msg.summary}
+          </ReactMarkdown>
         </div>
       )}
 
