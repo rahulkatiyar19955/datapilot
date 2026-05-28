@@ -8,7 +8,7 @@
  */
 
 export type DockerStatus =
-  | { state: 'pending' }
+  | { state: 'pending'; progress?: number; step?: string }
   | { state: 'ready' }
   | { state: 'error'; code: DockerErrorCode; message: string }
 

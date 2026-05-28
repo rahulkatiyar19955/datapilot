@@ -9,7 +9,7 @@ import { CommandBar } from './CommandBar'
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages)
   const clearMessages = useChatStore((s) => s.clearMessages)
-  const { status, meta, clearSession, setPendingPath } = useSessionStore()
+  const { status, clearSession, setPendingPath, pendingPath } = useSessionStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   /**
@@ -31,7 +31,7 @@ export function CopilotPanel(): JSX.Element {
     }
   }, [messages.length])
 
-  const modelLabel = meta ? 'claude-sonnet-4.5' : '—'
+  const modelLabel = 'claude-sonnet-4.5'
 
   return (
     <div
@@ -103,9 +103,27 @@ export function CopilotPanel(): JSX.Element {
                 </span>
               </>
             ) : status === 'error' ? (
-              <span style={{ fontSize: 12, color: 'var(--color-danger)', textAlign: 'center' }}>
-                Failed to load session. Please try again.
-              </span>
+              <div className="col gap-3 items-center justify-center">
+                <span style={{ fontSize: 12, color: 'var(--color-danger)', textAlign: 'center' }}>
+                  Failed to load session. Please try again.
+                </span>
+                <button
+                  className="btn primary sm"
+                  onClick={() => {
+                    const path = pendingPath
+                    if (path) {
+                      setPendingPath(null)
+                      setTimeout(() => {
+                        setPendingPath(path)
+                      }, 50)
+                    }
+                  }}
+                  title="Retry loading session"
+                >
+                  <Icon.Refresh size={12} />
+                  Retry Loading
+                </button>
+              </div>
             ) : (
               <span style={{ fontSize: 12, color: 'var(--color-text-3)', textAlign: 'center' }}>
                 Session ready. Ask anything about this run.
