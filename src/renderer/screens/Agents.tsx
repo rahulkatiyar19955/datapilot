@@ -349,6 +349,7 @@ export function Agents(): JSX.Element {
   const [mcps, setMcps] = useState<MCPDef[]>(INITIAL_MCP)
   const [showAdd, setShowAdd] = useState(false)
   const [section, setSection] = useState<'agents' | 'mcp'>('agents')
+  const [routing, setRouting] = useState<'auto' | 'parallel' | 'manual'>('auto')
 
   const enabledAgents = agents.filter((a) => a.enabled).length
   const connectedMcps = mcps.filter((m) => m.status === 'connected').length
@@ -466,13 +467,18 @@ export function Agents(): JSX.Element {
                       padding: '10px 12px',
                       cursor: 'pointer',
                       borderColor:
-                        key === 'auto' ? 'var(--color-accent)' : 'var(--color-border-1)',
+                        routing === key ? 'var(--color-accent)' : 'var(--color-border-1)',
                       background:
-                        key === 'auto' ? 'var(--color-accent-bg)' : 'var(--color-bg-2)',
+                        routing === key ? 'var(--color-accent-bg)' : 'var(--color-bg-2)',
                     }}
                   >
                     <div className="row gap-2" style={{ marginBottom: 4 }}>
-                      <input type="radio" name="route" defaultChecked={key === 'auto'} />
+                      <input
+                        type="radio"
+                        name="route"
+                        checked={routing === key}
+                        onChange={() => setRouting(key)}
+                      />
                       <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-0)' }}>
                         {label}
                       </span>

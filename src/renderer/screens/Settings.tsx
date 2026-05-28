@@ -72,8 +72,9 @@ function FieldInput({
         <input
           type={type}
           placeholder={placeholder}
-          defaultValue={value}
-          onChange={(e) => onChange?.(e.target.value)}
+          value={onChange ? value : undefined}
+          defaultValue={!onChange ? value : undefined}
+          onChange={onChange ? (e) => onChange(e.target.value) : undefined}
           style={{
             fontFamily: mono ? 'var(--font-mono)' : 'inherit',
             fontSize: mono ? 12 : 13,
@@ -791,14 +792,14 @@ export function Settings(): JSX.Element {
 
         {/* Scrollable content */}
         <div className="flex1" style={{ overflowY: 'auto', padding: '18px 22px 22px' }}>
-          <div style={{ maxWidth: 880 }}>
-            {section === 'general'   && <GeneralSection theme={theme} setTheme={setTheme} />}
-            {section === 'models'    && <ModelsSection />}
-            {section === 'docker'    && <DockerSection />}
-            {section === 'storage'   && <StorageSection />}
-            {section === 'shortcuts' && <ShortcutsSection />}
-            {section === 'about'     && <AboutSection />}
-          </div>
+          {/* Keep all sections mounted so local state (API keys, toggles, etc.)
+              survives navigation. Only the active section is visible. */}
+          <div style={{ maxWidth: 880, display: section === 'general'   ? 'block' : 'none' }}><GeneralSection theme={theme} setTheme={setTheme} /></div>
+          <div style={{ maxWidth: 880, display: section === 'models'    ? 'block' : 'none' }}><ModelsSection /></div>
+          <div style={{ maxWidth: 880, display: section === 'docker'    ? 'block' : 'none' }}><DockerSection /></div>
+          <div style={{ maxWidth: 880, display: section === 'storage'   ? 'block' : 'none' }}><StorageSection /></div>
+          <div style={{ maxWidth: 880, display: section === 'shortcuts' ? 'block' : 'none' }}><ShortcutsSection /></div>
+          <div style={{ maxWidth: 880, display: section === 'about'     ? 'block' : 'none' }}><AboutSection /></div>
         </div>
       </div>
     </div>
