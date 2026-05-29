@@ -318,6 +318,9 @@ async def get_messages(
             "role": r.role,
             "content": r.content,
             "created_at": r.created_at.isoformat() if r.created_at else None,
+            "findings": json.loads(r.findings_json) if r.findings_json else None,
+            "causal": json.loads(r.causal_json) if r.causal_json else None,
+            "plan": json.loads(r.plan_json) if r.plan_json else None,
         }
         for r in rows
     ]
@@ -341,6 +344,9 @@ async def _persist_turn(
         content=envelope.get("response", ""),
         execution_steps=json.dumps(envelope.get("audit_trail", []), default=str),
         citations=json.dumps(envelope.get("citations", []), default=str),
+        findings_json=json.dumps(envelope.get("findings", []), default=str),
+        causal_json=json.dumps(envelope.get("causal", []), default=str),
+        plan_json=json.dumps(envelope.get("plan", []), default=str),
     ))
     # Cost row
     usage = envelope.get("usage") or {}

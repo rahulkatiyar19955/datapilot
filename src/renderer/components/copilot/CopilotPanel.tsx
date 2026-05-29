@@ -80,7 +80,11 @@ export function CopilotPanel(): JSX.Element {
         const loaded = rows.map((r, i) => ({
           id: `hist-${i}`,
           role: r.role as "user" | "assistant",
-          text: r.content,
+          text: r.role !== "assistant" ? r.content : undefined,
+          summary: r.role === "assistant" ? r.content : undefined,
+          findings: r.findings || undefined,
+          causal: r.causal || undefined,
+          plan: r.plan || undefined,
           time: r.created_at
             ? parseUTCDate(r.created_at).toLocaleTimeString()
             : undefined,

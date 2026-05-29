@@ -291,7 +291,16 @@ export async function clearAllSessions(): Promise<{
 
 export async function getChatMessages(
   sessionId: string,
-): Promise<Array<{ role: string; content: string; created_at: string | null }>> {
+): Promise<
+  Array<{
+    role: string;
+    content: string;
+    created_at: string | null;
+    findings?: any[];
+    causal?: any[];
+    plan?: any[];
+  }>
+> {
   return get(`/api/sessions/${sessionId}/messages`);
 }
 
