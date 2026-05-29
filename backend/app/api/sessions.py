@@ -74,6 +74,10 @@ async def run_ingestion(session_id: str, filepath: str):
             neo4j_client.write_logs(session_id, logs)
             neo4j_client.write_topics(session_id, parsed.get("topics", []))
             neo4j_client.write_frames(session_id, parsed.get("frames", []))
+            
+            # Write sensors and diagnostics
+            neo4j_client.write_sensors(session_id, parsed.get("sensors", []))
+            neo4j_client.write_diagnostics(session_id, parsed.get("diagnostics", []))
 
             # 3. Anomalies (Phase 3 seeds these from parsed timeline events;
             # Phase 5 AnomalyDetector worker will write more via the same shape).
