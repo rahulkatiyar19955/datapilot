@@ -296,7 +296,9 @@ def _summary_for(spec_output: dict[str, Any]) -> str:
     findings = spec_output.get("findings", []) or []
     if not findings:
         return f"specialist returned {len(findings)} finding(s)"
-    return f"{len(findings)} finding(s); top: {findings[0].get('text','')[:80]}"
+    first = findings[0]
+    top_text = first.get("text", str(first))[:80] if isinstance(first, dict) else str(first)[:80]
+    return f"{len(findings)} finding(s); top: {top_text}"
 
 
 async def _persist_turn(

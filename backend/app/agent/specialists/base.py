@@ -172,10 +172,13 @@ class BaseSpecialist:
                 last_text = resp["content"]
                 break
 
-            # Append the assistant turn carrying the tool_calls
+            # Append the assistant turn carrying the tool_calls.
+            # content MUST be None (not "") when tool_calls are present —
+            # NIM and most OpenAI-compatible providers reject messages that
+            # have both a non-null content and tool_calls (HTTP 400).
             messages.append({
                 "role": "assistant",
-                "content": resp["content"],
+                "content": resp["content"] or None,
                 "tool_calls": resp["tool_calls"],
             })
 
@@ -248,8 +251,10 @@ class BaseSpecialist:
             obj["confidence"] = max(0.0, min(1.0, float(obj["confidence"])))
         except (TypeError, ValueError):
             obj["confidence"] = 0.5
+        # Drop any non-dict entries in findings (malformed LLM output guard).
+        # Non-dict items (e.g. strings) would cause AttributeError downstream.
+        obj["findings"] = [f for f in obj.get("findings", []) if isinstance(f, dict)]
         # Ensure findings have log_ids field.
-        for f in obj.get("findings", []):
-            if isinstance(f, dict):
-                f.setdefault("log_ids", [])
+        for f in obj["findings"]:
+            f.setdefault("log_ids", [])
         return obj

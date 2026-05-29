@@ -4,7 +4,13 @@ query_graph — general-purpose read-only Cypher tool for session graph explorat
 Gives specialists full read access to the Neo4j session graph so they can answer
 questions about any bag, including bags that have no /rosout log messages.
 
-Node labels:  Session, Log, Topic, Anomaly, Frame
+Node labels and their properties:
+  - Session: id, filename, robot_id, duration_s, started_at
+  - Log: id, ts (timestamp float), severity, node, msg (log message text - NOT message), topic, type
+  - Topic: name, type, hz, total_messages
+  - Anomaly: id, ts (timestamp float), kind, severity, source_log_id, confidence, topic, label
+  - Frame: name, session_id
+
 Relationships:
   (Session)-[:HAS_LOG]->(Log)
   (Session)-[:HAS_TOPIC]->(Topic)
@@ -26,13 +32,21 @@ NAME = "query_graph"
 DESCRIPTION = (
     "Run a read-only Cypher query against the Neo4j session graph. "
     "Always include $session_id in your MATCH/WHERE clause. "
-    "Node labels: Session, Log, Topic, Anomaly, Frame. "
-    "Rels: (Session)-[:HAS_LOG]->(Log), (Session)-[:HAS_TOPIC]->(Topic), "
-    "(Session)-[:HAS_ANOMALY]->(Anomaly), (Frame)-[:CHILD_OF]->(Frame). "
-    "Example — list all topics: "
-    "MATCH (s:Session {id: $session_id})-[:HAS_TOPIC]->(t:Topic) "
-    "RETURN t.name AS name, t.type AS type, t.hz AS hz, t.total_messages AS msgs "
-    "ORDER BY t.total_messages DESC"
+    "Node labels and their properties:\n"
+    " - Session: id, filename, robot_id, duration_s, started_at\n"
+    " - Log: id, ts (timestamp float), severity, node, msg (log text - NOT message), topic, type\n"
+    " - Topic: name, type, hz, total_messages\n"
+    " - Anomaly: id, ts (timestamp float), kind, severity, source_log_id, confidence, topic, label\n"
+    " - Frame: name, session_id\n"
+    "Relationships:\n"
+    " - (Session)-[:HAS_LOG]->(Log)\n"
+    " - (Session)-[:HAS_TOPIC]->(Topic)\n"
+    " - (Session)-[:HAS_ANOMALY]->(Anomaly)\n"
+    " - (Frame)-[:CHILD_OF]->(Frame)\n"
+    "Example — list recent logs: "
+    "MATCH (s:Session {id: $session_id})-[:HAS_LOG]->(l:Log) "
+    "RETURN l.id AS log_id, l.ts AS timestamp, l.severity AS severity, l.msg AS message "
+    "LIMIT 10"
 )
 
 INPUT_SCHEMA: dict[str, Any] = {
