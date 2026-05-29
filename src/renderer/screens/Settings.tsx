@@ -1005,6 +1005,15 @@ function StorageSection(): JSX.Element {
     }
   };
 
+  const handleDownloadLlmLogs = () => {
+    const link = document.createElement("a");
+    link.href = "http://localhost:8000/api/settings/llm-logs";
+    link.setAttribute("download", "llm_prompts.jsonl");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <>
       <SectionCard
@@ -1065,6 +1074,13 @@ function StorageSection(): JSX.Element {
             >
               <Icon.Refresh size={11} className={loadingUsage ? "spin" : ""} />
               Refresh
+            </button>
+            <button
+              className="btn ghost sm"
+              onClick={handleDownloadLlmLogs}
+            >
+              <Icon.Download size={11} />
+              Download LLM logs
             </button>
             <div className="flex1" />
             <button

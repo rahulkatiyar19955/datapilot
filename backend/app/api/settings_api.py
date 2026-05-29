@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
+import os
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db_sqlite import get_db
@@ -238,3 +240,16 @@ async def delete_agent_model(specialist: str, db: AsyncSession = Depends(get_db)
         await db.commit()
     set_specialist_override(specialist, None)
     return {"status": "success", "specialist": specialist}
+
+
+@router.get("/llm-logs")
+async def download_llm_logs():
+    from app.config import settings
+    log_path = os.path.join(settings.datapilot_data_dir, "llm_prompts.log")
+    if not os.path.exists(log_path):
+        raise HTTPException(status_code=404, detail="LLM prompts log file not found")
+    return FileResponse(
+        log_path,
+        media_type="application/x-jsonlines",
+        filename="llm_prompts.jsonl"
+    )
