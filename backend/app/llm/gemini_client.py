@@ -18,9 +18,28 @@ from app.llm.base import (
 logger = logging.getLogger(__name__)
 
 
+def _clean_schema(d: Any) -> Any:
+    """Recursively remove additionalProperties/additional_properties from schemas.
+    The Gemini API / google-genai SDK does not support them in tool declarations.
+    """
+    if isinstance(d, dict):
+        return {
+            k: _clean_schema(v)
+            for k, v in d.items()
+            if k not in ("additionalProperties", "additional_properties")
+        }
+    elif isinstance(d, list):
+        return [_clean_schema(x) for x in d]
+    return d
+
+
 def _to_gemini_function_declarations(tools: list[ToolDef]) -> list[dict[str, Any]]:
     return [
-        {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
+        {
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": _clean_schema(t["parameters"]),
+        }
         for t in tools
     ]
 
