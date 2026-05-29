@@ -1,0 +1,56 @@
+# docker-compose.override.yml
+#
+# LOCAL DEV ONLY — restores build-from-source directives for developers who
+# want to iterate on the Python services without pushing to GHCR.
+#
+# Usage:
+#   docker compose up --build          # auto-merges this override
+#   docker compose build backend       # rebuild a single service
+#
+# To use the production (pull-only) compose without this override:
+#   docker compose -f docker-compose.yml up
+#
+# See https://docs.docker.com/compose/extends/#multiple-compose-files
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ghcr.io/rahulkatiyar19955/datapilot-backend:local-dev
+
+  mcap-parser:
+    build:
+      context: .
+      dockerfile: mcap_parser/Dockerfile
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcap-parser:local-dev
+
+  rosbag-reader:
+    build:
+      context: .
+      dockerfile: mcp_workers/rosbag_reader/Dockerfile
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-rosbag-reader:local-dev
+
+  trajectory-analyzer:
+    build:
+      context: .
+      dockerfile: mcp_workers/trajectory_analyzer/Dockerfile
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-trajectory-analyzer:local-dev
+
+  planner-failure-inspector:
+    build:
+      context: .
+      dockerfile: mcp_workers/planner_failure_inspector/Dockerfile
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-planner-failure-inspector:local-dev
+
+  anomaly-detector:
+    build:
+      context: .
+      dockerfile: mcp_workers/anomaly_detector/Dockerfile
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-anomaly-detector:local-dev
+
+  report-composer:
+    build:
+      context: .
+      dockerfile: mcp_workers/report_composer/Dockerfile
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-report-composer:local-dev

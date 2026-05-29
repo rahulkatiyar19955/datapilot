@@ -1,0 +1,122 @@
+# =============================================================================
+# DataPilot – Build & Publish Docker Images to GitHub Container Registry (GHCR)
+# =============================================================================
+#
+# This workflow builds all 7 DataPilot service images and pushes them to
+# ghcr.io/rahulkatiyar19955/datapilot-<service>. The Electron desktop app
+# (dockerOrchestrator.ts) and docker-compose.yml reference these images so
+# end-users never have to build from source locally.
+#
+# Triggers:
+#   • push to main  →  :latest + :sha-<commit>
+#   • git tag v*    →  :v1.2.3
+#   • pull request  →  build only (no push) for CI validation
+#
+# Images are multi-platform (linux/amd64 + linux/arm64).
+
+name: Docker Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/datapilot
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Core services ──────────────────────────────────────────────
+          - service: backend
+            image_suffix: backend
+            dockerfile: backend/Dockerfile
+            context: ./backend
+
+          - service: mcap-parser
+            image_suffix: mcap-parser
+            dockerfile: mcap_parser/Dockerfile
+            context: .
+
+          # ── MCP workers (all use repo root as build context) ───────────
+          - service: rosbag-reader
+            image_suffix: mcp-rosbag-reader
+            dockerfile: mcp_workers/rosbag_reader/Dockerfile
+            context: .
+
+          - service: trajectory-analyzer
+            image_suffix: mcp-trajectory-analyzer
+            dockerfile: mcp_workers/trajectory_analyzer/Dockerfile
+            context: .
+
+          - service: planner-failure-inspector
+            image_suffix: mcp-planner-failure-inspector
+            dockerfile: mcp_workers/planner_failure_inspector/Dockerfile
+            context: .
+
+          - service: anomaly-detector
+            image_suffix: mcp-anomaly-detector
+            dockerfile: mcp_workers/anomaly_detector/Dockerfile
+            context: .
+
+          - service: report-composer
+            image_suffix: mcp-report-composer
+            dockerfile: mcp_workers/report_composer/Dockerfile
+            context: .
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # QEMU is required for cross-platform (arm64) builds on GitHub's amd64 runners.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # docker/metadata-action generates OCI-compliant image tags and labels.
+      # On main push  → :latest, :sha-abc1234
+      # On tag v1.2.3 → :v1.2.3, :latest
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.image_suffix }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push image — ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

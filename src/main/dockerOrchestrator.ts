@@ -493,7 +493,7 @@ class DockerOrchestrator {
         step: "Starting MCAP Parser service…",
       });
       await this.startContainer("mcap-parser", {
-        Image: "datapilot/mcap-parser:local",
+        Image: "ghcr.io/rahulkatiyar19955/datapilot-mcap-parser:latest",
         Env: ["DATAPILOT_HOST_MOUNT=/host"],
         HostConfig: {
           Binds: [`${userHome}:/host:ro`],
@@ -539,7 +539,7 @@ class DockerOrchestrator {
       }
 
       await this.startContainer("backend", {
-        Image: "datapilot/backend:local",
+        Image: "ghcr.io/rahulkatiyar19955/datapilot-backend:latest",
         Env: backendEnv,
         HostConfig: {
           PortBindings: {
@@ -585,31 +585,31 @@ class DockerOrchestrator {
       const workers = [
         {
           name: "rosbag-reader",
-          image: "datapilot/mcp-rosbag-reader:local",
+          image: "ghcr.io/rahulkatiyar19955/datapilot-mcp-rosbag-reader:latest",
           binds: [`${userHome}:/host:ro`],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
           name: "trajectory-analyzer",
-          image: "datapilot/mcp-trajectory-analyzer:local",
+          image: "ghcr.io/rahulkatiyar19955/datapilot-mcp-trajectory-analyzer:latest",
           binds: [`${userHome}:/host:ro`],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
           name: "planner-failure-inspector",
-          image: "datapilot/mcp-planner-failure-inspector:local",
+          image: "ghcr.io/rahulkatiyar19955/datapilot-mcp-planner-failure-inspector:latest",
           binds: [],
           env: [...neo4jEnv],
         },
         {
           name: "anomaly-detector",
-          image: "datapilot/mcp-anomaly-detector:local",
+          image: "ghcr.io/rahulkatiyar19955/datapilot-mcp-anomaly-detector:latest",
           binds: [`${userHome}:/host:ro`],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
           name: "report-composer",
-          image: "datapilot/mcp-report-composer:local",
+          image: "ghcr.io/rahulkatiyar19955/datapilot-mcp-report-composer:latest",
           binds: [],
           env: [...neo4jEnv],
         },

@@ -5,6 +5,10 @@
 # to be invoked manually with `docker compose up`. The desktop app boots and
 # tears down this stack on launch / quit.
 #
+# All images are pulled from GitHub Container Registry (GHCR). To build from
+# source instead, layer the dev override:
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml up --build
+#
 # Run `docker compose config` to validate this file.
 
 name: datapilot
@@ -43,10 +47,7 @@ services:
       retries: 12
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: datapilot/backend:local
+    image: ghcr.io/rahulkatiyar19955/datapilot-backend:latest
     container_name: datapilot-backend
     networks: [datapilot-net]
     ports:
@@ -72,10 +73,7 @@ services:
       retries: 12
 
   mcap-parser:
-    build:
-      context: .
-      dockerfile: mcap_parser/Dockerfile
-    image: datapilot/mcap-parser:local
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcap-parser:latest
     container_name: datapilot-mcap-parser
     networks: [datapilot-net]
     ports:
@@ -93,18 +91,13 @@ services:
       retries: 12
 
   # ── MCP workers (Phase 5) ──────────────────────────────────────────────
-  # All workers share one build pattern: context is the repo root so the
-  # image can pull in `backend/` (for `app.agent.tools.*`) + `mcp_workers/`
-  # (for `_shared/` helpers + the worker package itself). Each exposes a
-  # tiny HTTP `/health` on a per-worker port that the backend's
-  # `/api/mcp/servers` route polls; the primary MCP transport (stdio) is
-  # consumed by the backend via the `mcp_stdio.WorkerHandle` pool when
-  # `DATAPILOT_MCP_TRANSPORT=stdio` (the production default).
+  # All workers are pulled from GHCR. Each exposes a tiny HTTP `/health`
+  # on a per-worker port that the backend's `/api/mcp/servers` route polls;
+  # the primary MCP transport (stdio) is consumed by the backend via the
+  # `mcp_stdio.WorkerHandle` pool when `DATAPILOT_MCP_TRANSPORT=stdio`
+  # (the production default).
   rosbag-reader:
-    build:
-      context: .
-      dockerfile: mcp_workers/rosbag_reader/Dockerfile
-    image: datapilot/mcp-rosbag-reader:local
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-rosbag-reader:latest
     container_name: datapilot-rosbag-reader
     networks: [datapilot-net]
     ports:
@@ -125,10 +118,7 @@ services:
       retries: 12
 
   trajectory-analyzer:
-    build:
-      context: .
-      dockerfile: mcp_workers/trajectory_analyzer/Dockerfile
-    image: datapilot/mcp-trajectory-analyzer:local
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-trajectory-analyzer:latest
     container_name: datapilot-trajectory-analyzer
     networks: [datapilot-net]
     ports:
@@ -148,10 +138,7 @@ services:
       retries: 12
 
   planner-failure-inspector:
-    build:
-      context: .
-      dockerfile: mcp_workers/planner_failure_inspector/Dockerfile
-    image: datapilot/mcp-planner-failure-inspector:local
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-planner-failure-inspector:latest
     container_name: datapilot-planner-failure-inspector
     networks: [datapilot-net]
     ports:
@@ -173,10 +160,7 @@ services:
       retries: 12
 
   anomaly-detector:
-    build:
-      context: .
-      dockerfile: mcp_workers/anomaly_detector/Dockerfile
-    image: datapilot/mcp-anomaly-detector:local
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-anomaly-detector:latest
     container_name: datapilot-anomaly-detector
     networks: [datapilot-net]
     ports:
@@ -196,10 +180,7 @@ services:
       retries: 12
 
   report-composer:
-    build:
-      context: .
-      dockerfile: mcp_workers/report_composer/Dockerfile
-    image: datapilot/mcp-report-composer:local
+    image: ghcr.io/rahulkatiyar19955/datapilot-mcp-report-composer:latest
     container_name: datapilot-report-composer
     networks: [datapilot-net]
     ports:
