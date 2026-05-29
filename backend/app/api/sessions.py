@@ -232,7 +232,7 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
         print(f"Error clearing neo4j for session {session_id}: {e}")
 
     await _clear_checkpoints_for_session(session_id)
-    await db.delete(record)
+    db.delete(record)
     await db.commit()
     return {"status": "success", "message": f"Session {session_id} deleted"}
 

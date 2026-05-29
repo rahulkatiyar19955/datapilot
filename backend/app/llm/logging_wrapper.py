@@ -12,28 +12,34 @@ import json
 import logging
 import logging.handlers
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 from app.llm.base import CompletionChunk, CompletionResponse, LLMClient, Message, ToolDef
+
+_logger_lock = threading.Lock()
 
 
 def _get_prompt_logger() -> logging.Logger:
     log = logging.getLogger("datapilot.llm_prompts")
     if log.handlers:
         return log
+    # Double-checked locking: re-test inside the lock to avoid a race where two
+    # coroutines both see `handlers` empty before either adds the handler.
+    with _logger_lock:
+        if not log.handlers:
+            from app.config import settings
+            log_path = os.path.join(settings.datapilot_data_dir, "llm_prompts.log")
+            os.makedirs(settings.datapilot_data_dir, exist_ok=True)
 
-    from app.config import settings
-    log_path = os.path.join(settings.datapilot_data_dir, "llm_prompts.log")
-    os.makedirs(settings.datapilot_data_dir, exist_ok=True)
-
-    handler = logging.handlers.RotatingFileHandler(
-        log_path, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
-    )
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    log.addHandler(handler)
-    log.setLevel(logging.DEBUG)
-    log.propagate = False
+            handler = logging.handlers.RotatingFileHandler(
+                log_path, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
+            )
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            log.addHandler(handler)
+            log.setLevel(logging.DEBUG)
+            log.propagate = False
     return log
 
 

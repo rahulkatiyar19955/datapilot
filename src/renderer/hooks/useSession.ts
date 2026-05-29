@@ -11,14 +11,14 @@ import * as api from "@renderer/services/api";
  * Guard: if the store already has a ready session for the same path,
  * this hook is a no-op (handles navigate-away-and-back without refetch).
  */
-// Module-level caches to track the loaded session across mount/unmount cycles
-let activePath: string | null = null;
-let activeSessionId: string | null = null;
-
 export function useSession(pendingPath: string | null): void {
   const { pendingSessionId, setSession, setStatus, setTabData, clearSession } =
     useSessionStore();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Refs (not module-level vars) track the in-flight request within this hook
+  // instance, avoiding stale-closure issues across mount/unmount cycles.
+  const pathRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!pendingPath && !pendingSessionId) return;
@@ -26,19 +26,19 @@ export function useSession(pendingPath: string | null): void {
     // No-op if already ready for this path or session
     if (
       pendingPath &&
-      pendingPath === activePath &&
+      pendingPath === pathRef.current &&
       useSessionStore.getState().status === "ready"
     )
       return;
     if (
       pendingSessionId &&
-      pendingSessionId === activeSessionId &&
+      pendingSessionId === sessionIdRef.current &&
       useSessionStore.getState().status === "ready"
     )
       return;
 
-    activePath = pendingPath;
-    activeSessionId = pendingSessionId;
+    pathRef.current = pendingPath;
+    sessionIdRef.current = pendingSessionId;
     clearSession();
     setStatus(pendingPath ? "creating" : "processing");
 
