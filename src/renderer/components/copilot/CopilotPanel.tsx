@@ -200,12 +200,25 @@ export function CopilotPanel(): JSX.Element {
         </button>
 
         {showHistory && (
-          <div
-            className="card"
-            style={{
-              position: "absolute",
-              top: 40,
-              right: 14,
+          <>
+            {/* Invisible backdrop to close modal on outside click */}
+            <div
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 99,
+              }}
+              onClick={() => setShowHistory(false)}
+            />
+            <div
+              className="card"
+              style={{
+                position: "absolute",
+                top: 40,
+                right: 14,
               width: 320,
               maxHeight: 300,
               zIndex: 100,
@@ -363,6 +376,7 @@ export function CopilotPanel(): JSX.Element {
               )}
             </div>
           </div>
+          </>
         )}
       </div>
 
