@@ -36,3 +36,22 @@ def test_session_lifecycle():
     sess_data = response.json()
     assert sess_data["id"] == session_id
     assert sess_data["filename"] == "lidar_failure.mcap"
+
+def test_download_llm_logs(tmp_path, monkeypatch):
+    from app.config import settings
+    # Override settings.datapilot_data_dir to a temp path
+    monkeypatch.setattr(settings, "datapilot_data_dir", str(tmp_path))
+    
+    # 1. When file doesn't exist
+    response = client.get("/api/settings/llm-logs")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "LLM prompts log file not found"
+    
+    # 2. When file exists
+    log_file = tmp_path / "llm_prompts.log"
+    log_file.write_text("dummy log line\n")
+    
+    response = client.get("/api/settings/llm-logs")
+    assert response.status_code == 200
+    assert response.text == "dummy log line\n"
+    assert response.headers["content-disposition"] == 'attachment; filename="llm_prompts.jsonl"'

@@ -15,6 +15,8 @@ export function useSession(pendingPath: string | null): void {
   const { pendingSessionId, setSession, setStatus, setTabData, clearSession } =
     useSessionStore();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Refs (not module-level vars) track the in-flight request within this hook
+  // instance, avoiding stale-closure issues across mount/unmount cycles.
   const pathRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
@@ -38,7 +40,7 @@ export function useSession(pendingPath: string | null): void {
     pathRef.current = pendingPath;
     sessionIdRef.current = pendingSessionId;
     clearSession();
-    setStatus("creating");
+    setStatus(pendingPath ? "creating" : "processing");
 
     let cancelled = false;
 

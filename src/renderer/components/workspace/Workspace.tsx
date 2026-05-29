@@ -21,7 +21,7 @@ interface TabDef {
 
 export function Workspace(): JSX.Element {
   const { tab, setTab } = useUIStore();
-  const { timeline, topics, logs, kgraph, status, setPendingPath } =
+  const { timeline, topics, logs, kgraph, status, setPendingPath, pendingPath } =
     useSessionStore();
 
   const pickBagFile = async () => {
@@ -126,11 +126,14 @@ export function Workspace(): JSX.Element {
             >
               {status === "creating"
                 ? "Creating analysis session…"
-                : "AI is indexing topic channels…"}
+                : !pendingPath
+                  ? "Loading session data…"
+                  : "AI is indexing topic channels…"}
             </span>
             <span className="dim" style={{ fontSize: 13 }}>
-              Extracting semantic metadata, logging lanes, and generating
-              knowledge graph.
+              {!pendingPath
+                ? "Fetching semantic metadata, logging lanes, and knowledge graph."
+                : "Extracting semantic metadata, logging lanes, and generating knowledge graph."}
             </span>
           </div>
 

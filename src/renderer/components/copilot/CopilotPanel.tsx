@@ -10,9 +10,39 @@ import { CommandBar } from "./CommandBar";
 import * as api from "@renderer/services/api";
 import type { SessionMeta } from "@shared/types";
 
+function parseUTCDate(dateStr: string): Date {
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+") && !/-\d{2}:\d{2}$/.test(dateStr)) {
+    return new Date(dateStr + "Z");
+  }
+  return new Date(dateStr);
+}
+
+function formatRelativeTime(dateStr?: string): string {
+  if (!dateStr) return "";
+  const date = parseUTCDate(dateStr);
+  if (isNaN(date.getTime())) return "";
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const diffMs = date.getTime() - Date.now();
+  const diffMins = Math.round(diffMs / 60000);
+  const diffHours = Math.round(diffMs / 3600000);
+  const diffDays = Math.round(diffMs / 86400000);
+
+  const absMs = Math.abs(diffMs);
+  if (absMs < 60000) {
+    return "just now";
+  } else if (absMs < 3600000) {
+    return rtf.format(diffMins, "minute");
+  } else if (absMs < 86400000) {
+    return rtf.format(diffHours, "hour");
+  } else {
+    return rtf.format(diffDays, "day");
+  }
+}
+
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages);
   const clearMessages = useChatStore((s) => s.clearMessages);
+  const setMessages = useChatStore((s) => s.setMessages);
   const {
     status,
     sessionId,
@@ -25,13 +55,72 @@ export function CopilotPanel(): JSX.Element {
   const { setScreen, setSettingsSectionTarget } = useUIStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Track the session ID that was resumed from history so we can reload its
+  // chat messages once the session is fully loaded.
+  const resumingSessionId = useRef<string | null>(null);
+
+  const [indexingProgress, setIndexingProgress] = useState(0);
+
+  useEffect(() => {
+    if (status === "creating" || status === "processing") {
+      setIndexingProgress(5);
+      const interval = setInterval(() => {
+        setIndexingProgress((prev) => {
+          if (prev >= 95) return prev;
+          const step = prev < 50 ? 5 : prev < 80 ? 2 : 1;
+          return prev + step;
+        });
+      }, 600);
+      return () => clearInterval(interval);
+    } else if (status === "ready") {
+      setIndexingProgress(100);
+    } else {
+      setIndexingProgress(0);
+    }
+  }, [status]);
+
+  const getIndexingStepText = (pct: number): string => {
+    if (pct < 25) return "Reading ROS bag telemetry...";
+    if (pct < 50) return "Extracting topics and transform frames...";
+    if (pct < 70) return "Evaluating causal relationships...";
+    if (pct < 90) return "Generating log embeddings...";
+    return "Building knowledge graph...";
+  };
+
   const showWarningBanner =
     defaultProvider !== "ollama" && !apiKeys[defaultProvider];
 
-  // Clear chat messages when session changes (e.g. from history click or clear)
+  // Clear chat messages when session changes.
   useEffect(() => {
     clearMessages();
   }, [sessionId, clearMessages]);
+
+  // After a session resumed from history is ready, load its chat history.
+  useEffect(() => {
+    if (
+      sessionId &&
+      status === "ready" &&
+      resumingSessionId.current === sessionId
+    ) {
+      resumingSessionId.current = null;
+      api.getChatMessages(sessionId).then((rows) => {
+        if (rows.length === 0) return;
+        const loaded = rows.map((r, i) => ({
+          id: `hist-${i}`,
+          role: r.role as "user" | "assistant",
+          text: r.role !== "assistant" ? r.content : undefined,
+          summary: r.role === "assistant" ? r.content : undefined,
+          findings: r.findings || undefined,
+          causal: r.causal || undefined,
+          plan: r.plan || undefined,
+          time: r.created_at
+            ? parseUTCDate(r.created_at).toLocaleTimeString()
+            : undefined,
+        }));
+        setMessages(loaded);
+      }).catch(() => {/* silently ignore if history unavailable */});
+    }
+  }, [sessionId, status, setMessages]);
 
   /**
    * "New session" — clears the chat AND resets the session entirely so the
@@ -48,6 +137,7 @@ export function CopilotPanel(): JSX.Element {
   const [showHistory, setShowHistory] = useState(false);
   const [historySessions, setHistorySessions] = useState<SessionMeta[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
 
   const handleToggleHistory = async () => {
     const nextVal = !showHistory;
@@ -172,12 +262,25 @@ export function CopilotPanel(): JSX.Element {
         </button>
 
         {showHistory && (
-          <div
-            className="card"
-            style={{
-              position: "absolute",
-              top: 40,
-              right: 14,
+          <>
+            {/* Invisible backdrop to close modal on outside click */}
+            <div
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 99,
+              }}
+              onClick={() => setShowHistory(false)}
+            />
+            <div
+              className="card"
+              style={{
+                position: "absolute",
+                top: 40,
+                right: 14,
               width: 320,
               maxHeight: 300,
               zIndex: 100,
@@ -207,16 +310,53 @@ export function CopilotPanel(): JSX.Element {
               >
                 Session History
               </span>
-              <button
-                className="btn ghost icon sm"
-                style={{ height: 20, width: 20 }}
-                onClick={() => setShowHistory(false)}
-              >
-                <Icon.Check size={12} style={{ color: "var(--color-ok)" }} />
-              </button>
+              <div className="row gap-1">
+                {historySessions.length > 0 && (
+                  <button
+                    className="btn ghost sm"
+                    style={{ height: 20, fontSize: 10.5, color: "var(--color-danger)" }}
+                    disabled={clearingHistory}
+                    onClick={async () => {
+                      if (confirm("Delete all sessions? This cannot be undone.")) {
+                        setClearingHistory(true);
+                        try {
+                          await api.clearAllSessions();
+                          setHistorySessions([]);
+                          clearSession();
+                        } catch {
+                          alert("Failed to clear all sessions");
+                        } finally {
+                          setClearingHistory(false);
+                        }
+                      }
+                    }}
+                  >
+                    {clearingHistory ? "Clearing..." : "Clear all"}
+                  </button>
+                )}
+                <button
+                  className="btn ghost icon sm"
+                  style={{ height: 20, width: 20 }}
+                  onClick={() => setShowHistory(false)}
+                  disabled={clearingHistory}
+                >
+                  <Icon.Check size={12} style={{ color: "var(--color-ok)" }} />
+                </button>
+              </div>
             </div>
             <div style={{ overflowY: "auto", flex: 1, padding: 4 }}>
-              {loadingHistory ? (
+              {clearingHistory ? (
+                <div
+                  style={{
+                    padding: 20,
+                    textAlign: "center",
+                    fontSize: 12,
+                    color: "var(--color-text-3)",
+                  }}
+                >
+                  <span className="pulse">Clearing all sessions...</span>
+                </div>
+              ) : loadingHistory ? (
                 <div
                   style={{
                     padding: 20,
@@ -261,6 +401,7 @@ export function CopilotPanel(): JSX.Element {
                       className="col flex1"
                       style={{ minWidth: 0 }}
                       onClick={() => {
+                        resumingSessionId.current = s.id;
                         setPendingSessionId(s.id);
                         setShowHistory(false);
                       }}
@@ -282,6 +423,7 @@ export function CopilotPanel(): JSX.Element {
                         style={{ fontSize: 10.5, marginTop: 2 }}
                       >
                         {s.robot} · {s.durationSeconds.toFixed(1)}s · {s.status}
+                        {s.updatedAt && ` · ${formatRelativeTime(s.updatedAt)}`}
                       </div>
                     </div>
                     <button
@@ -313,6 +455,7 @@ export function CopilotPanel(): JSX.Element {
               )}
             </div>
           </div>
+          </>
         )}
       </div>
 
@@ -432,25 +575,92 @@ export function CopilotPanel(): JSX.Element {
             }}
           >
             {status === "creating" || status === "processing" ? (
-              <>
-                <span
-                  className="pulse"
-                  style={{ color: "var(--color-accent)" }}
+              <div
+                className="col gap-3"
+                style={{
+                  width: "100%",
+                  padding: "0 20px",
+                  alignItems: "center",
+                }}
+              >
+                {/* AI / Sparkles Pulsing Icon */}
+                <div
+                  className="row"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    background: "var(--color-bg-2)",
+                    border: "1px solid var(--color-border-1)",
+                    display: "grid",
+                    placeItems: "center",
+                    boxShadow: "var(--shadow-sm)",
+                    color: "var(--color-accent)",
+                    animation: "pulse 2s infinite ease-in-out",
+                  }}
                 >
-                  <Icon.Sparkles size={20} />
-                </span>
+                  <Icon.Sparkles
+                    size={20}
+                    style={{ animation: "spin 3s linear infinite" }}
+                  />
+                </div>
+
+                {/* Status label */}
                 <span
                   style={{
-                    fontSize: 12,
-                    color: "var(--color-text-2)",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: "var(--color-text-1)",
                     textAlign: "center",
                   }}
                 >
                   {status === "creating"
-                    ? "Creating session…"
-                    : "Indexing with AI…"}
+                    ? "Creating session..."
+                    : getIndexingStepText(indexingProgress)}
                 </span>
-              </>
+
+                {/* Progress bar container */}
+                <div
+                  style={{
+                    width: "100%",
+                    height: 6,
+                    background: "var(--color-bg-3)",
+                    borderRadius: 3,
+                    overflow: "hidden",
+                    border: "1px solid var(--color-border-1)",
+                    position: "relative",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${indexingProgress}%`,
+                      height: "100%",
+                      background:
+                        "linear-gradient(90deg, var(--color-accent) 0%, oklch(0.68 0.15 280) 100%)",
+                      borderRadius: 3,
+                      boxShadow: "0 0 8px var(--color-accent)",
+                      transition: "width 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  />
+                </div>
+
+                {/* Progress metadata */}
+                <div
+                  className="row"
+                  style={{
+                    justifyContent: "space-between",
+                    width: "100%",
+                    fontSize: 10.5,
+                    color: "var(--color-text-3)",
+                    padding: "0 2px",
+                  }}
+                >
+                  <span>AI Ingestion</span>
+                  <span className="mono" style={{ fontWeight: 600, color: "var(--color-accent)" }}>
+                    {indexingProgress}%
+                  </span>
+                </div>
+              </div>
             ) : status === "error" ? (
               <div className="col gap-3 items-center justify-center">
                 <span

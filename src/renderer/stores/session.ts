@@ -57,7 +57,6 @@ export const useSessionStore = create<SessionState>((set) => ({
   clearSession: () =>
     set({
       sessionId: null,
-      pendingSessionId: null,
       status: "idle",
       meta: null,
       timeline: [],

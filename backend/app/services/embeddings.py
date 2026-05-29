@@ -1,17 +1,21 @@
+from __future__ import annotations
 import os
-from typing import List
-import openai
-from sentence_transformers import SentenceTransformer
+from typing import List, TYPE_CHECKING
 from app.config import settings
+
+if TYPE_CHECKING:
+    import openai
+    from sentence_transformers import SentenceTransformer
 
 class EmbeddingService:
     def __init__(self):
-        self._local_model = None
-        self._openai_client = None
+        self._local_model: SentenceTransformer | None = None
+        self._openai_client: openai.OpenAI | None = None
 
     @property
     def local_model(self) -> SentenceTransformer:
         if self._local_model is None:
+            from sentence_transformers import SentenceTransformer
             # Cache the models inside our persistent data directory
             cache_folder = os.path.join(settings.datapilot_data_dir, "models")
             os.makedirs(cache_folder, exist_ok=True)
@@ -20,8 +24,9 @@ class EmbeddingService:
         return self._local_model
 
     @property
-    def openai_client(self) -> openai.OpenAI:
+    def openai_client(self) -> openai.OpenAI | None:
         if self._openai_client is None and settings.openai_api_key:
+            import openai
             self._openai_client = openai.OpenAI(api_key=settings.openai_api_key)
         return self._openai_client
 

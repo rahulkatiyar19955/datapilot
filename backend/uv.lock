@@ -510,32 +510,34 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiosqlite" },
-    { name = "anthropic" },
     { name = "fastapi" },
-    { name = "google-genai" },
     { name = "greenlet" },
     { name = "httpx" },
-    { name = "langchain-core" },
-    { name = "langgraph" },
     { name = "mcap" },
     { name = "mcap-protobuf-support" },
     { name = "mcap-ros1-support" },
     { name = "mcap-ros2-support" },
     { name = "mcp" },
     { name = "neo4j" },
-    { name = "openai" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "rosbags" },
-    { name = "sentence-transformers" },
     { name = "sqlalchemy" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
+ai = [
+    { name = "anthropic" },
+    { name = "google-genai" },
+    { name = "langchain-core" },
+    { name = "langgraph" },
+    { name = "openai" },
+    { name = "sentence-transformers" },
+]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
@@ -546,13 +548,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20.0" },
-    { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "anthropic", marker = "extra == 'ai'", specifier = ">=0.40.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "google-genai", specifier = ">=1.0.0" },
+    { name = "google-genai", marker = "extra == 'ai'", specifier = ">=1.0.0" },
     { name = "greenlet", specifier = ">=3.0" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "langchain-core", specifier = ">=0.3.20" },
-    { name = "langgraph", specifier = ">=0.2.50" },
+    { name = "langchain-core", marker = "extra == 'ai'", specifier = ">=0.3.20" },
+    { name = "langgraph", marker = "extra == 'ai'", specifier = ">=0.2.50" },
     { name = "mcap", specifier = ">=1.2.1" },
     { name = "mcap-protobuf-support", specifier = ">=0.3.0" },
     { name = "mcap-ros1-support", specifier = ">=0.5.0" },
@@ -560,7 +562,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
     { name = "neo4j", specifier = ">=5.27.0" },
-    { name = "openai", specifier = ">=1.55.0" },
+    { name = "openai", marker = "extra == 'ai'", specifier = ">=1.55.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
@@ -569,12 +571,12 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rosbags", specifier = ">=0.10.7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
-    { name = "sentence-transformers", specifier = ">=3.3.1" },
+    { name = "sentence-transformers", marker = "extra == 'ai'", specifier = ">=3.3.1" },
     { name = "sqlalchemy", specifier = ">=2.0.36" },
     { name = "sse-starlette", specifier = ">=2.1.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["ai", "dev"]
 
 [[package]]
 name = "distro"

@@ -37,6 +37,9 @@ class ChatMessageRecord(Base):
     content = Column(Text, nullable=False)
     execution_steps = Column(Text, nullable=True)  # JSON array of tools executed
     citations = Column(Text, nullable=True)  # JSON array of source log links
+    findings_json = Column(Text, nullable=True)  # JSON array of findings
+    causal_json = Column(Text, nullable=True)    # JSON array of causal steps
+    plan_json = Column(Text, nullable=True)      # JSON array of plan steps
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     session = relationship("SessionRecord", back_populates="messages")

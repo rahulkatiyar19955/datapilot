@@ -19,6 +19,17 @@ async def init_db():
     from app.models import SessionRecord, ChatMessageRecord, AgentModelRecord, SessionCostRecord
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # SQLite migrations for chat_messages table to support restoring full findings/causal/plan
+        from sqlalchemy import text
+        result = await conn.execute(text("PRAGMA table_info(chat_messages)"))
+        columns = [row[1] for row in result.fetchall()]
+        if "findings_json" not in columns:
+            await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN findings_json TEXT"))
+        if "causal_json" not in columns:
+            await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN causal_json TEXT"))
+        if "plan_json" not in columns:
+            await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN plan_json TEXT"))
 
 async def get_db():
     async with AsyncSessionLocal() as session:

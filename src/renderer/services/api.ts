@@ -62,6 +62,7 @@ interface RawSession {
   total_messages?: number;
   topics_list?: string | string[];
   status: string;
+  updated_at?: string;
 }
 
 interface RawTimeline {
@@ -120,6 +121,7 @@ function normalizeSession(r: RawSession): SessionMeta {
     totalMessages: r.total_messages ?? 0,
     topicsCount,
     status: r.status as SessionStatus,
+    updatedAt: r.updated_at,
   };
 }
 
@@ -285,6 +287,21 @@ export async function clearAllSessions(): Promise<{
   message: string;
 }> {
   return del<{ status: string; message: string }>("/api/sessions");
+}
+
+export async function getChatMessages(
+  sessionId: string,
+): Promise<
+  Array<{
+    role: string;
+    content: string;
+    created_at: string | null;
+    findings?: any[];
+    causal?: any[];
+    plan?: any[];
+  }>
+> {
+  return get(`/api/sessions/${sessionId}/messages`);
 }
 
 export async function testApiKey(
