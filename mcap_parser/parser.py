@@ -171,6 +171,23 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
     from mcap_ros2.decoder import DecoderFactory as Ros2DecoderFactory
     import json
 
+    decoder_factories = [Ros2DecoderFactory()]
+    has_ros1 = False
+    try:
+        from mcap_ros1.decoder import DecoderFactory as Ros1DecoderFactory
+        decoder_factories.append(Ros1DecoderFactory())
+        has_ros1 = True
+    except ImportError:
+        pass
+
+    has_protobuf = False
+    try:
+        from mcap_protobuf.decoder import DecoderFactory as ProtobufDecoderFactory
+        decoder_factories.append(ProtobufDecoderFactory())
+        has_protobuf = True
+    except ImportError:
+        pass
+
     warnings: list[str] = []
     tf_parser = _TFParser()
     logs: list[dict] = []
@@ -178,7 +195,7 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
     diagnostics: list[dict] = []
 
     with open(filepath, "rb") as f:
-        reader = make_reader(f, decoder_factories=[Ros2DecoderFactory()])
+        reader = make_reader(f, decoder_factories=decoder_factories)
         summary = reader.get_summary()
 
         # ── Topic catalog ─────────────────────────────────────────────────────
@@ -243,12 +260,20 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
                         end_time = ts
 
         # ── Split channels by encoding ────────────────────────────────────────
-        # iter_decoded_messages throws when it hits a protobuf channel and no
-        # protobuf factory is registered.  Only pass CDR channels to it.
-        cdr_log_ids  = {cid for cid in log_channel_ids  if channel_to_encoding.get(cid) != "protobuf"}
-        cdr_tf_ids   = {cid for cid in tf_channel_ids   if channel_to_encoding.get(cid) != "protobuf"}
-        cdr_diag_ids = {cid for cid in diag_channel_ids if channel_to_encoding.get(cid) != "protobuf"}
-        pb_log_ids   = {cid for cid in log_channel_ids  if channel_to_encoding.get(cid) == "protobuf"}
+        # iter_decoded_messages throws when it hits a channel and no factory is registered.
+        # Only pass supported channels to it.
+        supported_encodings = {"cdr"}
+        if has_ros1:
+            supported_encodings.add("ros1")
+        if has_protobuf:
+            supported_encodings.add("protobuf")
+
+        cdr_log_ids  = {cid for cid in log_channel_ids  if channel_to_encoding.get(cid) in supported_encodings}
+        cdr_tf_ids   = {cid for cid in tf_channel_ids   if channel_to_encoding.get(cid) in supported_encodings}
+        cdr_diag_ids = {cid for cid in diag_channel_ids if channel_to_encoding.get(cid) in supported_encodings}
+        
+        # If mcap-protobuf-support is not installed, fallback to manual foxglove log decoding
+        pb_log_ids   = {cid for cid in log_channel_ids  if channel_to_encoding.get(cid) == "protobuf" and "protobuf" not in supported_encodings}
 
         cdr_topics = list({
             channel_to_topic[cid]
@@ -273,10 +298,19 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
                     rel = ts - (start_time or ts)
 
                     if channel.id in cdr_log_ids:
+                        schema = (summary.schemas if summary else {}).get(channel.schema_id)
+                        schema_name = schema.name if schema else ""
                         node = getattr(decoded_message, "name", "unknown")
-                        text = getattr(decoded_message, "msg", "")
-                        level = getattr(decoded_message, "level", 20)
-                        sev = _SEV_INT_MAP.get(level, "INFO")
+                        
+                        if schema_name == "foxglove.Log":
+                            text = getattr(decoded_message, "message", "")
+                            level = getattr(decoded_message, "level", 0)
+                            sev = _FOXGLOVE_LEVEL_MAP.get(level, "INFO")
+                        else:
+                            text = getattr(decoded_message, "msg", "")
+                            level = getattr(decoded_message, "level", 20)
+                            sev = _SEV_INT_MAP.get(level, "INFO")
+                            
                         logs.append({
                             "t": str(timedelta(seconds=rel)),
                             "node": node,

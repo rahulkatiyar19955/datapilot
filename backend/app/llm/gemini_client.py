@@ -57,7 +57,10 @@ def _to_gemini_contents(messages: list[Message]) -> list[dict[str, Any]]:
             if m.get("content"):
                 parts.append({"text": m["content"]})
             for tc in m["tool_calls"]:
-                parts.append({"function_call": {"name": tc["name"], "args": tc["arguments"]}})
+                fc_part: dict[str, Any] = {"function_call": {"name": tc["name"], "args": tc["arguments"]}}
+                if "thought_signature" in tc:
+                    fc_part["thought_signature"] = tc["thought_signature"]
+                parts.append(fc_part)
         elif role == "tool":
             parts = [{
                 "function_response": {
@@ -153,11 +156,14 @@ class GeminiClient:
             for part in getattr(candidate.content, "parts", []) or []:
                 fc = getattr(part, "function_call", None)
                 if fc:
-                    tool_calls.append({
+                    tc_dict: ToolCall = {
                         "id": f"gemini_{fc.name}_{len(tool_calls)}",
                         "name": fc.name,
                         "arguments": dict(fc.args) if getattr(fc, "args", None) else {},
-                    })
+                    }
+                    if getattr(part, "thought_signature", None):
+                        tc_dict["thought_signature"] = part.thought_signature
+                    tool_calls.append(tc_dict)
 
         usage = getattr(resp, "usage_metadata", None)
         return {
