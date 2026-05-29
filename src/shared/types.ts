@@ -20,6 +20,7 @@ export interface SessionMeta {
   totalMessages: number;
   topicsCount: number;
   status: SessionStatus;
+  updatedAt?: string;
 }
 
 export interface TimelineEvent {

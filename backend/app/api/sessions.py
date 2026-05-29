@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+from sqlalchemy.orm import selectinload
 import json
 import re
 import uuid
@@ -186,8 +187,12 @@ async def create_session(
 
 @router.get("", response_model=List[SessionResponse])
 async def list_sessions(db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(SessionRecord).order_by(SessionRecord.created_at.desc()))
-    records = res.scalars().all()
+    res = await db.execute(
+        select(SessionRecord)
+        .options(selectinload(SessionRecord.messages))
+        .order_by(SessionRecord.created_at.desc())
+    )
+    records = res.scalars().unique().all()
     response = []
     for record in records:
         topics = []
@@ -209,7 +214,8 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
             topics_list=topics,
             status=record.status,
             error_message=record.error_message,
-            created_at=record.created_at
+            created_at=record.created_at,
+            updated_at=max([m.created_at for m in record.messages], default=record.created_at) if record.messages else record.created_at
         ))
     return response
 

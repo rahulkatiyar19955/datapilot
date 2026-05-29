@@ -62,6 +62,7 @@ interface RawSession {
   total_messages?: number;
   topics_list?: string | string[];
   status: string;
+  updated_at?: string;
 }
 
 interface RawTimeline {
@@ -120,6 +121,7 @@ function normalizeSession(r: RawSession): SessionMeta {
     totalMessages: r.total_messages ?? 0,
     topicsCount,
     status: r.status as SessionStatus,
+    updatedAt: r.updated_at,
   };
 }
 

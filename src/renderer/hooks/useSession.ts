@@ -38,7 +38,7 @@ export function useSession(pendingPath: string | null): void {
     pathRef.current = pendingPath;
     sessionIdRef.current = pendingSessionId;
     clearSession();
-    setStatus("creating");
+    setStatus(pendingPath ? "creating" : "processing");
 
     let cancelled = false;
 

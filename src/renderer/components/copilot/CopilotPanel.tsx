@@ -10,6 +10,35 @@ import { CommandBar } from "./CommandBar";
 import * as api from "@renderer/services/api";
 import type { SessionMeta } from "@shared/types";
 
+function parseUTCDate(dateStr: string): Date {
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+") && !/-\d{2}:\d{2}$/.test(dateStr)) {
+    return new Date(dateStr + "Z");
+  }
+  return new Date(dateStr);
+}
+
+function formatRelativeTime(dateStr?: string): string {
+  if (!dateStr) return "";
+  const date = parseUTCDate(dateStr);
+  if (isNaN(date.getTime())) return "";
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const diffMs = date.getTime() - Date.now();
+  const diffMins = Math.round(diffMs / 60000);
+  const diffHours = Math.round(diffMs / 3600000);
+  const diffDays = Math.round(diffMs / 86400000);
+
+  const absMs = Math.abs(diffMs);
+  if (absMs < 60000) {
+    return "just now";
+  } else if (absMs < 3600000) {
+    return rtf.format(diffMins, "minute");
+  } else if (absMs < 86400000) {
+    return rtf.format(diffHours, "hour");
+  } else {
+    return rtf.format(diffDays, "day");
+  }
+}
+
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages);
   const clearMessages = useChatStore((s) => s.clearMessages);
@@ -53,7 +82,7 @@ export function CopilotPanel(): JSX.Element {
           role: r.role as "user" | "assistant",
           text: r.content,
           time: r.created_at
-            ? new Date(r.created_at).toLocaleTimeString()
+            ? parseUTCDate(r.created_at).toLocaleTimeString()
             : undefined,
         }));
         setMessages(loaded);
@@ -345,6 +374,7 @@ export function CopilotPanel(): JSX.Element {
                         style={{ fontSize: 10.5, marginTop: 2 }}
                       >
                         {s.robot} · {s.durationSeconds.toFixed(1)}s · {s.status}
+                        {s.updatedAt && ` · ${formatRelativeTime(s.updatedAt)}`}
                       </div>
                     </div>
                     <button
