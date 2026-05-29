@@ -24,6 +24,7 @@ interface FinalEventData {
   response?: string;
   findings?: Array<{ sev?: string; text?: string; detail?: string }>;
   audit_trail?: Array<{ result_summary?: string }>;
+  causal?: unknown[];
   citations?: unknown[];
   usage?: {
     tokens_in: number;
@@ -104,12 +105,12 @@ export function useChat(): UseChatReturn {
             detail: f.detail,
           }));
 
-          // Extract causal chain from audit_trail if present
-          const trail = final.audit_trail ?? [];
+          // Extract causal chain from final event if present
+          const rawCausal = final.causal ?? [];
           const causal: CausalItem[] | undefined =
-            trail.length > 0
-              ? trail
-                  .map((step) => ({ text: step.result_summary ?? "" }))
+            rawCausal.length > 0
+              ? rawCausal
+                  .map((c: any) => ({ text: typeof c === 'string' ? c : c.text ?? String(c) }))
                   .filter((c) => c.text)
               : undefined;
 
