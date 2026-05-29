@@ -59,6 +59,34 @@ export function CopilotPanel(): JSX.Element {
   // chat messages once the session is fully loaded.
   const resumingSessionId = useRef<string | null>(null);
 
+  const [indexingProgress, setIndexingProgress] = useState(0);
+
+  useEffect(() => {
+    if (status === "creating" || status === "processing") {
+      setIndexingProgress(5);
+      const interval = setInterval(() => {
+        setIndexingProgress((prev) => {
+          if (prev >= 95) return prev;
+          const step = prev < 50 ? 5 : prev < 80 ? 2 : 1;
+          return prev + step;
+        });
+      }, 600);
+      return () => clearInterval(interval);
+    } else if (status === "ready") {
+      setIndexingProgress(100);
+    } else {
+      setIndexingProgress(0);
+    }
+  }, [status]);
+
+  const getIndexingStepText = (pct: number): string => {
+    if (pct < 25) return "Reading ROS bag telemetry...";
+    if (pct < 50) return "Extracting topics and transform frames...";
+    if (pct < 70) return "Evaluating causal relationships...";
+    if (pct < 90) return "Generating log embeddings...";
+    return "Building knowledge graph...";
+  };
+
   const showWarningBanner =
     defaultProvider !== "ollama" && !apiKeys[defaultProvider];
 
@@ -547,25 +575,92 @@ export function CopilotPanel(): JSX.Element {
             }}
           >
             {status === "creating" || status === "processing" ? (
-              <>
-                <span
-                  className="pulse"
-                  style={{ color: "var(--color-accent)" }}
+              <div
+                className="col gap-3"
+                style={{
+                  width: "100%",
+                  padding: "0 20px",
+                  alignItems: "center",
+                }}
+              >
+                {/* AI / Sparkles Pulsing Icon */}
+                <div
+                  className="row"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    background: "var(--color-bg-2)",
+                    border: "1px solid var(--color-border-1)",
+                    display: "grid",
+                    placeItems: "center",
+                    boxShadow: "var(--shadow-sm)",
+                    color: "var(--color-accent)",
+                    animation: "pulse 2s infinite ease-in-out",
+                  }}
                 >
-                  <Icon.Sparkles size={20} />
-                </span>
+                  <Icon.Sparkles
+                    size={20}
+                    style={{ animation: "spin 3s linear infinite" }}
+                  />
+                </div>
+
+                {/* Status label */}
                 <span
                   style={{
-                    fontSize: 12,
-                    color: "var(--color-text-2)",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: "var(--color-text-1)",
                     textAlign: "center",
                   }}
                 >
                   {status === "creating"
-                    ? "Creating session…"
-                    : "Indexing with AI…"}
+                    ? "Creating session..."
+                    : getIndexingStepText(indexingProgress)}
                 </span>
-              </>
+
+                {/* Progress bar container */}
+                <div
+                  style={{
+                    width: "100%",
+                    height: 6,
+                    background: "var(--color-bg-3)",
+                    borderRadius: 3,
+                    overflow: "hidden",
+                    border: "1px solid var(--color-border-1)",
+                    position: "relative",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${indexingProgress}%`,
+                      height: "100%",
+                      background:
+                        "linear-gradient(90deg, var(--color-accent) 0%, oklch(0.68 0.15 280) 100%)",
+                      borderRadius: 3,
+                      boxShadow: "0 0 8px var(--color-accent)",
+                      transition: "width 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  />
+                </div>
+
+                {/* Progress metadata */}
+                <div
+                  className="row"
+                  style={{
+                    justifyContent: "space-between",
+                    width: "100%",
+                    fontSize: 10.5,
+                    color: "var(--color-text-3)",
+                    padding: "0 2px",
+                  }}
+                >
+                  <span>AI Ingestion</span>
+                  <span className="mono" style={{ fontWeight: 600, color: "var(--color-accent)" }}>
+                    {indexingProgress}%
+                  </span>
+                </div>
+              </div>
             ) : status === "error" ? (
               <div className="col gap-3 items-center justify-center">
                 <span
