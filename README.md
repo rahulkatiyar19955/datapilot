@@ -1,4 +1,4 @@
-# DataPilot 🚀
+<h1 align="center">DataPilot</h1>
 
 <p align="center">
   <strong>AI-powered copilot that helps robotics engineers debug ROS robots instantly.</strong>
@@ -50,22 +50,10 @@ To spin up the DataPilot Electron application locally:
 
 ### 1. Prerequisites
 Ensure you have the following installed on your system:
-* **Node.js** (v18+ recommended) & **pnpm**
+* **Node.js** (v20+ recommended) & **pnpm**
 * **Docker** & **Docker Desktop** (with local socket sharing enabled)
 
-### 2. Environment Setup
-Clone this repository and copy the environment template:
-```bash
-cp .env.example .env
-```
-Open `.env` and fill in your API Keys (supports multi-provider routing for OpenAI, Anthropic, Gemini, or local Llama models):
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-### 3. Launching the App
+### 2. Setup & Launching the App
 1. Install client dependencies:
    ```bash
    pnpm install
@@ -77,5 +65,11 @@ GEMINI_API_KEY=your_gemini_api_key_here
    ```
 
 DataPilot will automatically monitor your Docker socket, spin up containerized local services (FastAPI backend, Neo4j databases, and decoupled MCP workers), and open the native desktop UI.
+
+### 3. Configure API Keys
+Once the desktop application launches, navigate to the **Settings** screen in the UI to configure your API keys (supporting OpenAI, Anthropic, Gemini, etc.).
+
+> [!NOTE]
+> The desktop application saves all settings securely (encrypted via Electron's `safeStorage` API using your OS-native keychain) and injects them directly into the containerized backend at runtime.
 
 ---
