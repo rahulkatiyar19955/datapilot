@@ -14,6 +14,7 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
+from app.llm.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,7 @@ class GeminiClient:
         elif "gemini-3.1-pro" in model_id:
             self.actual_model_name = "gemini-3.1-pro-preview"
 
+    @retry_async()
     async def complete(
         self,
         *,

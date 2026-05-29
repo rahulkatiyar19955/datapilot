@@ -13,6 +13,7 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
+from app.llm.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class NimClient:
             base_url=_NIM_BASE_URL,
         )
 
+    @retry_async()
     async def complete(
         self,
         *,

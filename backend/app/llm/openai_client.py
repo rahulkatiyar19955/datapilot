@@ -13,6 +13,7 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
+from app.llm.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ class OpenAIClient:
         self.model_id = model_id
         self._client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
 
+    @retry_async()
     async def complete(
         self,
         *,

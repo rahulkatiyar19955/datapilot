@@ -33,8 +33,8 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
     RETURN t1.name      AS topic,
            t1.hz        AS hz_a,
            coalesce(t2.hz,   0.0) AS hz_b,
-           t1.msgs      AS msgs_a,
-           coalesce(t2.msgs, 0)   AS msgs_b,
+           t1.total_messages      AS msgs_a,
+           coalesce(t2.total_messages, 0)   AS msgs_b,
            t1.type      AS msg_type
     ORDER BY topic
     """

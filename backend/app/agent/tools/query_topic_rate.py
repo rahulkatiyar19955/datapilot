@@ -29,7 +29,7 @@ OUTPUT_SCHEMA: dict[str, Any] = {"type": "array"}
 def run(args: dict[str, Any]) -> dict[str, Any]:
     cypher = """
     MATCH (s:Session {id: $session_id})-[:HAS_TOPIC]->(t:Topic {name: $topic})
-    RETURN t.name AS topic, t.hz AS hz, t.msgs AS msgs, t.type AS msg_type
+    RETURN t.name AS topic, t.hz AS hz, t.total_messages AS msgs, t.type AS msg_type
     """
     try:
         results = neo4j_client.run_query(
