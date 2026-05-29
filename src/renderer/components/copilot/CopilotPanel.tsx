@@ -109,6 +109,7 @@ export function CopilotPanel(): JSX.Element {
   const [showHistory, setShowHistory] = useState(false);
   const [historySessions, setHistorySessions] = useState<SessionMeta[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
 
   const handleToggleHistory = async () => {
     const nextVal = !showHistory;
@@ -286,32 +287,48 @@ export function CopilotPanel(): JSX.Element {
                   <button
                     className="btn ghost sm"
                     style={{ height: 20, fontSize: 10.5, color: "var(--color-danger)" }}
+                    disabled={clearingHistory}
                     onClick={async () => {
                       if (confirm("Delete all sessions? This cannot be undone.")) {
+                        setClearingHistory(true);
                         try {
                           await api.clearAllSessions();
                           setHistorySessions([]);
                           clearSession();
                         } catch {
                           alert("Failed to clear all sessions");
+                        } finally {
+                          setClearingHistory(false);
                         }
                       }
                     }}
                   >
-                    Clear all
+                    {clearingHistory ? "Clearing..." : "Clear all"}
                   </button>
                 )}
                 <button
                   className="btn ghost icon sm"
                   style={{ height: 20, width: 20 }}
                   onClick={() => setShowHistory(false)}
+                  disabled={clearingHistory}
                 >
                   <Icon.Check size={12} style={{ color: "var(--color-ok)" }} />
                 </button>
               </div>
             </div>
             <div style={{ overflowY: "auto", flex: 1, padding: 4 }}>
-              {loadingHistory ? (
+              {clearingHistory ? (
+                <div
+                  style={{
+                    padding: 20,
+                    textAlign: "center",
+                    fontSize: 12,
+                    color: "var(--color-text-3)",
+                  }}
+                >
+                  <span className="pulse">Clearing all sessions...</span>
+                </div>
+              ) : loadingHistory ? (
                 <div
                   style={{
                     padding: 20,
