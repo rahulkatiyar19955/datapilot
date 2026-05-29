@@ -1,0 +1,15 @@
+node_modules/
+.git/
+.github/
+out/
+dist/
+.agents/
+.claude/
+.codex/
+.env
+.env.*
+backend/.venv/
+backend/.pytest_cache/
+backend/data_test/
+mcp_workers/**/__pycache__/
+*.log

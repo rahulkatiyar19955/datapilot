@@ -9,8 +9,7 @@ WORKDIR /app
 # uv for fast, reproducible installs (matches the backend's pattern).
 RUN pip install --no-cache-dir uv
 
-# Install the backend's runtime deps. The worker reuses `app.agent.tools.*`
-# and `app.services.*` so we want the same dependency set.
+# Install backend core dependencies only (excluding heavy AI/embedding libraries)
 COPY backend/pyproject.toml ./backend/pyproject.toml
 RUN uv pip install --system --no-cache -r ./backend/pyproject.toml
 

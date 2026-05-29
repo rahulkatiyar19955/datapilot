@@ -9,10 +9,11 @@ WORKDIR /app
 # uv for fast, reproducible installs (matches the backend's pattern).
 RUN pip install --no-cache-dir uv
 
-# Install the backend's runtime deps. The worker reuses `app.agent.tools.*`
-# and `app.services.*` so we want the same dependency set.
 COPY backend/pyproject.toml ./backend/pyproject.toml
-RUN uv pip install --system --no-cache -r ./backend/pyproject.toml
+# Pre-install CPU-only PyTorch to avoid CUDA / Nvidia runtime wheels (saves ~3.8GB)
+RUN uv pip install --system --no-cache --index-url https://download.pytorch.org/whl/cpu torch
+# Install core + AI dependencies (needs embeddings for retrieve_logs)
+RUN uv pip install --system --no-cache -r ./backend/pyproject.toml --extra ai
 
 # Copy the code we actually need at runtime.
 COPY backend/app           ./backend/app
