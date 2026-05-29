@@ -5,9 +5,12 @@ import json
 import re
 import uuid
 from typing import List, Optional
+import aiosqlite
+from pathlib import Path
 
 from app.db_sqlite import get_db, AsyncSessionLocal
 from app.models import SessionRecord
+from app.config import settings
 from app.schemas import (
     SessionCreate, SessionResponse, TimelineEvent, TopicInfo, LogItem,
     KGraphResponse, ReplayResponse, AnomalyItem,
@@ -16,8 +19,37 @@ from app.services.parser import ingestion_parser
 from app.services.embeddings import embedding_service
 from app.services.neo4j_client import neo4j_client
 from app.services.causal_rules import causal_rules_evaluator, log_time_to_seconds
+from app.services.kgraph_builder import build_kgraph
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+_CHECKPOINTS_DB = Path(settings.datapilot_data_dir) / "agent_checkpoints.sqlite"
+
+
+async def _clear_checkpoints_for_session(session_id: str) -> None:
+    """Remove LangGraph checkpoint rows for a single session."""
+    try:
+        if not _CHECKPOINTS_DB.exists():
+            return
+        async with aiosqlite.connect(str(_CHECKPOINTS_DB)) as db:
+            await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (session_id,))
+            await db.execute("DELETE FROM checkpoint_writes WHERE thread_id = ?", (session_id,))
+            await db.commit()
+    except Exception as e:
+        print(f"Warning: could not clear checkpoints for {session_id}: {e}")
+
+
+async def _clear_all_checkpoints() -> None:
+    """Truncate all LangGraph checkpoint data."""
+    try:
+        if not _CHECKPOINTS_DB.exists():
+            return
+        async with aiosqlite.connect(str(_CHECKPOINTS_DB)) as db:
+            await db.execute("DELETE FROM checkpoints")
+            await db.execute("DELETE FROM checkpoint_writes")
+            await db.commit()
+    except Exception as e:
+        print(f"Warning: could not clear all checkpoints: {e}")
 
 
 def _basename(filepath: str) -> str:
@@ -88,7 +120,15 @@ async def run_ingestion(session_id: str, filepath: str):
             edges = causal_rules_evaluator.evaluate(logs)
             neo4j_client.write_edges(edges)
 
-            # 5. Save metadata caches to SQLite Record
+            # 5. Build knowledge graph from ingested data
+            kgraph = build_kgraph(
+                sensors=parsed.get("sensors", []),
+                anomalies=anomalies,
+                logs=logs,
+                causal_edges=edges,
+            )
+
+            # 6. Save metadata caches to SQLite Record
             record.status = "ready"
             record.robot_name = parsed.get("robot_name")
             record.ros_version = parsed.get("ros_version")
@@ -99,7 +139,13 @@ async def run_ingestion(session_id: str, filepath: str):
             record.topics_list = json.dumps([t["name"] for t in parsed.get("topics", [])])
             record.timeline_json = json.dumps(parsed.get("timeline_events", []))
             record.topics_json = json.dumps(parsed.get("topics", []))
-            record.kgraph_json = json.dumps(parsed.get("kgraph", {"nodes": [], "edges": []}))
+            # Prefer the kgraph built from real ingested data; fall back to
+            # whatever the parser produced (e.g. the mock test fixtures).
+            parsed_kgraph = parsed.get("kgraph", {"nodes": [], "edges": []})
+            if kgraph["nodes"]:
+                record.kgraph_json = json.dumps(kgraph)
+            else:
+                record.kgraph_json = json.dumps(parsed_kgraph)
             record.replay_json = json.dumps(parsed.get("replay", []))
             record.anomalies_json = json.dumps(anomalies)
             
@@ -173,13 +219,14 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     record = res.scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     try:
         neo4j_client.clear_session(session_id)
     except Exception as e:
         print(f"Error clearing neo4j for session {session_id}: {e}")
-        
-    db.delete(record)
+
+    await _clear_checkpoints_for_session(session_id)
+    await db.delete(record)
     await db.commit()
     return {"status": "success", "message": f"Session {session_id} deleted"}
 
@@ -189,7 +236,8 @@ async def delete_all_sessions(db: AsyncSession = Depends(get_db)):
         neo4j_client.run_query("MATCH (n) DETACH DELETE n")
     except Exception as e:
         print(f"Error clearing neo4j: {e}")
-        
+
+    await _clear_all_checkpoints()
     await db.execute(delete(SessionRecord))
     await db.commit()
     return {"status": "success", "message": "All sessions cleared"}

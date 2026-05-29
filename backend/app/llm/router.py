@@ -101,20 +101,24 @@ def _build_client(provider: str, model_id: str) -> LLMClient:
     layer can be loaded even when an SDK isn't installed."""
     if provider == "anthropic":
         from app.llm.anthropic_client import AnthropicClient
-        return AnthropicClient(model_id=model_id)
-    if provider == "openai":
+        client: LLMClient = AnthropicClient(model_id=model_id)
+    elif provider == "openai":
         from app.llm.openai_client import OpenAIClient
-        return OpenAIClient(model_id=model_id)
-    if provider == "gemini":
+        client = OpenAIClient(model_id=model_id)
+    elif provider == "gemini":
         from app.llm.gemini_client import GeminiClient
-        return GeminiClient(model_id=model_id)
-    if provider == "nvidia":
+        client = GeminiClient(model_id=model_id)
+    elif provider == "nvidia":
         from app.llm.nim_client import NimClient
-        return NimClient(model_id=model_id)
-    if provider == "ollama":
+        client = NimClient(model_id=model_id)
+    elif provider == "ollama":
         from app.llm.ollama_client import OllamaClient
-        return OllamaClient(model_id=model_id)
-    raise ValueError(f"Unknown LLM provider: {provider}")
+        client = OllamaClient(model_id=model_id)
+    else:
+        raise ValueError(f"Unknown LLM provider: {provider}")
+
+    from app.llm.logging_wrapper import LoggingLLMClient
+    return LoggingLLMClient(client)
 
 
 class LLMRouter:

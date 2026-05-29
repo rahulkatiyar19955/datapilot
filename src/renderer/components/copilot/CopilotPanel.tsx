@@ -13,6 +13,7 @@ import type { SessionMeta } from "@shared/types";
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages);
   const clearMessages = useChatStore((s) => s.clearMessages);
+  const setMessages = useChatStore((s) => s.setMessages);
   const {
     status,
     sessionId,
@@ -25,13 +26,40 @@ export function CopilotPanel(): JSX.Element {
   const { setScreen, setSettingsSectionTarget } = useUIStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Track the session ID that was resumed from history so we can reload its
+  // chat messages once the session is fully loaded.
+  const resumingSessionId = useRef<string | null>(null);
+
   const showWarningBanner =
     defaultProvider !== "ollama" && !apiKeys[defaultProvider];
 
-  // Clear chat messages when session changes (e.g. from history click or clear)
+  // Clear chat messages when session changes.
   useEffect(() => {
     clearMessages();
   }, [sessionId, clearMessages]);
+
+  // After a session resumed from history is ready, load its chat history.
+  useEffect(() => {
+    if (
+      sessionId &&
+      status === "ready" &&
+      resumingSessionId.current === sessionId
+    ) {
+      resumingSessionId.current = null;
+      api.getChatMessages(sessionId).then((rows) => {
+        if (rows.length === 0) return;
+        const loaded = rows.map((r, i) => ({
+          id: `hist-${i}`,
+          role: r.role as "user" | "assistant",
+          text: r.content,
+          time: r.created_at
+            ? new Date(r.created_at).toLocaleTimeString()
+            : undefined,
+        }));
+        setMessages(loaded);
+      }).catch(() => {/* silently ignore if history unavailable */});
+    }
+  }, [sessionId, status, setMessages]);
 
   /**
    * "New session" — clears the chat AND resets the session entirely so the
@@ -207,13 +235,34 @@ export function CopilotPanel(): JSX.Element {
               >
                 Session History
               </span>
-              <button
-                className="btn ghost icon sm"
-                style={{ height: 20, width: 20 }}
-                onClick={() => setShowHistory(false)}
-              >
-                <Icon.Check size={12} style={{ color: "var(--color-ok)" }} />
-              </button>
+              <div className="row gap-1">
+                {historySessions.length > 0 && (
+                  <button
+                    className="btn ghost sm"
+                    style={{ height: 20, fontSize: 10.5, color: "var(--color-danger)" }}
+                    onClick={async () => {
+                      if (confirm("Delete all sessions? This cannot be undone.")) {
+                        try {
+                          await api.clearAllSessions();
+                          setHistorySessions([]);
+                          clearSession();
+                        } catch {
+                          alert("Failed to clear all sessions");
+                        }
+                      }
+                    }}
+                  >
+                    Clear all
+                  </button>
+                )}
+                <button
+                  className="btn ghost icon sm"
+                  style={{ height: 20, width: 20 }}
+                  onClick={() => setShowHistory(false)}
+                >
+                  <Icon.Check size={12} style={{ color: "var(--color-ok)" }} />
+                </button>
+              </div>
             </div>
             <div style={{ overflowY: "auto", flex: 1, padding: 4 }}>
               {loadingHistory ? (
@@ -261,6 +310,7 @@ export function CopilotPanel(): JSX.Element {
                       className="col flex1"
                       style={{ minWidth: 0 }}
                       onClick={() => {
+                        resumingSessionId.current = s.id;
                         setPendingSessionId(s.id);
                         setShowHistory(false);
                       }}

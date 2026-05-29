@@ -10,6 +10,7 @@ interface ChatState {
   updatePlanStep: (idx: number, patch: Partial<PlanStep>) => void;
   setStreaming: (streaming: boolean) => void;
   clearMessages: () => void;
+  setMessages: (msgs: ChatMessage[]) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -44,4 +45,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setStreaming: (streaming) => set({ streaming }),
 
   clearMessages: () => set({ messages: [] }),
+
+  setMessages: (msgs) => set({ messages: msgs }),
 }));

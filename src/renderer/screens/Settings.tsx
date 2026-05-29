@@ -368,6 +368,7 @@ function KeyInput({
         provider.id === "custom" ? customEndpoint : provider.endpoint;
       await api.testApiKey(provider.id, value, endpoint);
       setLocalStatus("success");
+      void handleRefresh();
     } catch (err: any) {
       setLocalStatus("error");
       setErrorMsg(err.message || "Verification failed");
@@ -395,9 +396,6 @@ function KeyInput({
       if (onRefreshModels) {
         onRefreshModels(fetchedModels);
       }
-      alert(
-        `Successfully fetched ${fetchedModels.length} models for ${provider.name}.`,
-      );
     } catch (err: any) {
       alert(`Failed to refresh models: ${err.message || err}`);
     } finally {
