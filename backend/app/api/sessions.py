@@ -98,7 +98,7 @@ async def run_ingestion(session_id: str, filepath: str):
             neo4j_client.create_session_node(
                 session_id=session_id,
                 filename=parsed["filename"],
-                robot_id=parsed.get("robot_name", "ARES-ROBOT"),
+                robot_id=parsed.get("robot_name", "robot"),
                 duration_s=parsed.get("duration_seconds", 0.0),
                 started_at=parsed.get("start_time", "")
             )
