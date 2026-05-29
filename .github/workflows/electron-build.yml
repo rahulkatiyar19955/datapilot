@@ -1,0 +1,86 @@
+name: Electron Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-electron:
+    name: Build & Package Electron App
+    runs-on: macos-latest
+    permissions:
+      contents: write # Needed for uploading releases
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Build & Package (macOS)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing identity (base64 encoded .p12 certificate)
+          CSC_LINK: ${{ secrets.MAC_CERTS }}
+          # Password for the .p12 certificate
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          # Apple Developer credentials for notarization
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm run package:mac
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: macOS-build
+          path: release/*.dmg
+
+  build-linux:
+    name: Build & Package Electron App (Linux)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Build & Package (Linux)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm run package:linux
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-build
+          path: release/*.AppImage

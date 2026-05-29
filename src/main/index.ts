@@ -26,6 +26,7 @@ function createWindow(): void {
     height: 940,
     minWidth: 1120,
     minHeight: 720,
+    icon: join(__dirname, "../../build/icon.png"),
     show: false,
     backgroundColor: "#15171b", // Match --bg-0
     titleBarStyle: "hidden",
