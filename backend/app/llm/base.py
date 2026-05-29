@@ -24,10 +24,11 @@ class Message(TypedDict, total=False):
     name: str           # tool name (some providers expect it)
 
 
-class ToolCall(TypedDict):
+class ToolCall(TypedDict, total=False):
     id: str
     name: str
     arguments: dict[str, Any]
+    thought_signature: str | bytes
 
 
 class ToolDef(TypedDict):

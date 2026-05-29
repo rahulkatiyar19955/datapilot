@@ -35,6 +35,48 @@ _TF_SCHEMAS = frozenset([
     "geometry_msgs/msg/TransformStamped",
 ])
 
+# Schema names for diagnostics.
+_DIAGNOSTIC_SCHEMAS = frozenset([
+    "diagnostic_msgs/DiagnosticArray",
+    "diagnostic_msgs/msg/DiagnosticArray",
+])
+
+def _extract_sensor_info(topic_name: str, msg_type: str) -> dict[str, str] | None:
+    if not isinstance(topic_name, str) or not topic_name or not isinstance(msg_type, str) or not msg_type:
+        return None
+    t = msg_type.lower()
+    sensor_type = None
+    if "laserscan" in t:
+        sensor_type = "LiDAR"
+    elif "pointcloud2" in t:
+        sensor_type = "PointCloud"
+    elif "imu" in t:
+        sensor_type = "IMU"
+    elif "image" in t:
+        sensor_type = "Camera"
+    elif "navsatfix" in t:
+        sensor_type = "GPS"
+    elif "odometry" in t:
+        sensor_type = "Odometry"
+    elif "range" in t:
+        sensor_type = "Range"
+        
+    if not sensor_type:
+        return None
+        
+    name = topic_name.strip("/")
+    if name.startswith("sensors/"):
+        name = name[len("sensors/"):]
+    elif name.startswith("sensor/"):
+        name = name[len("sensor/"):]
+        
+    return {
+        "name": name,
+        "topic": topic_name,
+        "type": sensor_type,
+        "msg_type": msg_type
+    }
+
 _SEV_INT_MAP = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
 
 # Foxglove.Log numeric level → severity string
@@ -129,14 +171,33 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
     """
     from mcap.reader import make_reader
     from mcap_ros2.decoder import DecoderFactory as Ros2DecoderFactory
+    import json
+
+    decoder_factories = [Ros2DecoderFactory()]
+    has_ros1 = False
+    try:
+        from mcap_ros1.decoder import DecoderFactory as Ros1DecoderFactory
+        decoder_factories.append(Ros1DecoderFactory())
+        has_ros1 = True
+    except ImportError:
+        pass
+
+    has_protobuf = False
+    try:
+        from mcap_protobuf.decoder import DecoderFactory as ProtobufDecoderFactory
+        decoder_factories.append(ProtobufDecoderFactory())
+        has_protobuf = True
+    except ImportError:
+        pass
 
     warnings: list[str] = []
     tf_parser = _TFParser()
     logs: list[dict] = []
     timeline_events: list[dict] = []
+    diagnostics: list[dict] = []
 
     with open(filepath, "rb") as f:
-        reader = make_reader(f, decoder_factories=[Ros2DecoderFactory()])
+        reader = make_reader(f, decoder_factories=decoder_factories)
         summary = reader.get_summary()
 
         # ── Topic catalog ─────────────────────────────────────────────────────
@@ -145,6 +206,7 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
         channel_to_encoding: dict[int, str] = {}
         log_channel_ids: set[int] = set()
         tf_channel_ids: set[int] = set()
+        diag_channel_ids: set[int] = set()
 
         for channel in (summary.channels if summary else {}).values():
             schema = (summary.schemas if summary else {}).get(channel.schema_id)
@@ -162,8 +224,10 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
             if schema_name in _LOG_SCHEMAS:
                 log_channel_ids.add(channel.id)
                 logger.info("Log channel: %s (schema=%s, enc=%s)", channel.topic, schema_name, encoding)
-            if channel.topic in ("/tf", "/tf_static"):
+            if schema_name in _TF_SCHEMAS or channel.topic in ("/tf", "/tf_static"):
                 tf_channel_ids.add(channel.id)
+            if schema_name in _DIAGNOSTIC_SCHEMAS:
+                diag_channel_ids.add(channel.id)
 
         # ── Message counts + bag timing from statistics (O(1)) ────────────────
         start_time: float | None = None
@@ -179,16 +243,43 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
             if stats.message_end_time:
                 end_time = stats.message_end_time / 1e9
 
+        # ── Fallback message count when stats block has no channel counts ────
+        # Some MCAP recorders write timing stats but omit channel_message_counts.
+        # In that case every topic shows msgs=0; iterate to get real counts.
+        if topics_dict and sum(td["msgs"] for td in topics_dict.values()) == 0:
+            warnings.append(
+                "MCAP statistics block missing message counts — counting by iteration"
+            )
+            for _, channel, message in reader.iter_messages():
+                topic = channel_to_topic.get(channel.id)
+                if topic and topic in topics_dict:
+                    topics_dict[topic]["msgs"] += 1
+                if message.log_time:
+                    ts = message.log_time / 1e9
+                    if start_time is None or ts < start_time:
+                        start_time = ts
+                    if end_time is None or ts > end_time:
+                        end_time = ts
+
         # ── Split channels by encoding ────────────────────────────────────────
-        # iter_decoded_messages throws when it hits a protobuf channel and no
-        # protobuf factory is registered.  Only pass CDR channels to it.
-        cdr_log_ids = {cid for cid in log_channel_ids if channel_to_encoding.get(cid) != "protobuf"}
-        cdr_tf_ids  = {cid for cid in tf_channel_ids  if channel_to_encoding.get(cid) != "protobuf"}
-        pb_log_ids  = {cid for cid in log_channel_ids if channel_to_encoding.get(cid) == "protobuf"}
+        # iter_decoded_messages throws when it hits a channel and no factory is registered.
+        # Only pass supported channels to it.
+        supported_encodings = {"cdr"}
+        if has_ros1:
+            supported_encodings.add("ros1")
+        if has_protobuf:
+            supported_encodings.add("protobuf")
+
+        cdr_log_ids  = {cid for cid in log_channel_ids  if channel_to_encoding.get(cid) in supported_encodings}
+        cdr_tf_ids   = {cid for cid in tf_channel_ids   if channel_to_encoding.get(cid) in supported_encodings}
+        cdr_diag_ids = {cid for cid in diag_channel_ids if channel_to_encoding.get(cid) in supported_encodings}
+        
+        # If mcap-protobuf-support is not installed, fallback to manual foxglove log decoding
+        pb_log_ids   = {cid for cid in log_channel_ids  if channel_to_encoding.get(cid) == "protobuf" and "protobuf" not in supported_encodings}
 
         cdr_topics = list({
             channel_to_topic[cid]
-            for cid in (cdr_log_ids | cdr_tf_ids)
+            for cid in (cdr_log_ids | cdr_tf_ids | cdr_diag_ids)
             if cid in channel_to_topic
         })
         pb_log_topics = list({
@@ -209,10 +300,19 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
                     rel = ts - (start_time or ts)
 
                     if channel.id in cdr_log_ids:
+                        schema = (summary.schemas if summary else {}).get(channel.schema_id)
+                        schema_name = schema.name if schema else ""
                         node = getattr(decoded_message, "name", "unknown")
-                        text = getattr(decoded_message, "msg", "")
-                        level = getattr(decoded_message, "level", 20)
-                        sev = _SEV_INT_MAP.get(level, "INFO")
+                        
+                        if schema_name == "foxglove.Log":
+                            text = getattr(decoded_message, "message", "")
+                            level = getattr(decoded_message, "level", 0)
+                            sev = _FOXGLOVE_LEVEL_MAP.get(level, "INFO")
+                        else:
+                            text = getattr(decoded_message, "msg", "")
+                            level = getattr(decoded_message, "level", 20)
+                            sev = _SEV_INT_MAP.get(level, "INFO")
+                            
                         logs.append({
                             "t": str(timedelta(seconds=rel)),
                             "node": node,
@@ -231,6 +331,36 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
 
                     elif channel.id in cdr_tf_ids:
                         tf_parser.parse(decoded_message)
+
+                    elif channel.id in cdr_diag_ids:
+                        status_list = getattr(decoded_message, "status", None) or []
+                        for status in status_list:
+                            level_int = getattr(status, "level", 0)
+                            level_map = {0: "OK", 1: "WARN", 2: "ERROR", 3: "STALE"}
+                            level_str = level_map.get(level_int, "OK")
+                            
+                            name = getattr(status, "name", "unknown")
+                            msg_text = getattr(status, "message", "")
+                            hw_id = getattr(status, "hardware_id", "")
+                            
+                            kv_list = getattr(status, "values", [])
+                            values = {}
+                            for kv in kv_list:
+                                k = getattr(kv, "key", None)
+                                v = getattr(kv, "value", None)
+                                if k is not None:
+                                    values[k] = str(v)
+                                    
+                            diagnostics.append({
+                                "t": str(timedelta(seconds=rel)),
+                                "level": level_str,
+                                "name": name,
+                                "message": msg_text,
+                                "hardware_id": hw_id,
+                                "values": values,
+                                "values_json": json.dumps(values),
+                                "topic": channel.topic,
+                            })
 
             except Exception as exc:
                 warnings.append(f"CDR decode pass failed: {exc}")
@@ -283,6 +413,16 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
     for idx, log in enumerate(logs):
         log["id"] = f"l_{idx + 1}"
 
+    sensors = []
+    for idx, td in enumerate(topics_dict.values()):
+        s_info = _extract_sensor_info(td["name"], td["type"])
+        if s_info:
+            s_info["id"] = f"s_{len(sensors) + 1}"
+            sensors.append(s_info)
+
+    for idx, d in enumerate(diagnostics):
+        d["id"] = f"d_{idx + 1}"
+
     for td in topics_dict.values():
         td.pop("encoding", None)  # internal field, strip from response
         td["hz"] = round(td["msgs"] / dur, 2) if dur > 0 else 0.0
@@ -307,6 +447,8 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
         "kgraph": {"nodes": [], "edges": []},
         "frames": tf_parser.frames_list(),
         "replay": [],
+        "sensors": sensors,
+        "diagnostics": diagnostics,
         "parse_warnings": warnings,
     }
 
@@ -316,16 +458,20 @@ def _parse_mcap(filepath: str) -> dict[str, Any]:
 def _parse_db3(filepath: str) -> dict[str, Any]:
     from rosbags.rosbag2 import Reader
     from rosbags.serde import deserialize_cdr
+    import json
 
     warnings: list[str] = []
     tf_parser = _TFParser()
     logs: list[dict] = []
     timeline_events: list[dict] = []
+    diagnostics: list[dict] = []
     topics_dict: dict[str, dict] = {}
     start_time: float | None = None
     end_time: float | None = None
 
-    DECODE_TOPICS = {"/rosout", "/tf", "/tf_static"}
+    log_connections = set()
+    tf_connections = set()
+    diag_connections = set()
 
     try:
         with Reader(filepath) as reader:
@@ -336,6 +482,14 @@ def _parse_db3(filepath: str) -> dict[str, Any]:
                     "type": connection.msgtype,
                     "msgs": 0,
                 }
+                if connection.msgtype in _LOG_SCHEMAS:
+                    log_connections.add(connection.topic)
+                elif connection.msgtype in _TF_SCHEMAS or connection.topic in ("/tf", "/tf_static"):
+                    tf_connections.add(connection.topic)
+                elif connection.msgtype in _DIAGNOSTIC_SCHEMAS:
+                    diag_connections.add(connection.topic)
+
+            decode_topics = log_connections | tf_connections | diag_connections
 
             for connection, timestamp_ns, rawdata in reader.messages():
                 topic = connection.topic
@@ -348,7 +502,7 @@ def _parse_db3(filepath: str) -> dict[str, Any]:
                 if topic in topics_dict:
                     topics_dict[topic]["msgs"] += 1
 
-                if topic not in DECODE_TOPICS:
+                if topic not in decode_topics:
                     continue
 
                 try:
@@ -357,13 +511,15 @@ def _parse_db3(filepath: str) -> dict[str, Any]:
                     warnings.append(f"CDR decode failed for {topic!r} ({connection.msgtype}): {exc}")
                     continue
 
-                if topic == "/rosout":
+                rel = timestamp - (start_time or timestamp)
+
+                if topic in log_connections:
                     node = getattr(msg, "name", "unknown")
                     msg_text = getattr(msg, "msg", "")
                     level_int = getattr(msg, "level", 20)
                     sev = _SEV_INT_MAP.get(level_int, "INFO")
                     logs.append({
-                        "t": str(timedelta(seconds=timestamp - (start_time or timestamp))),
+                        "t": str(timedelta(seconds=rel)),
                         "node": node,
                         "sev": sev,
                         "text": msg_text,
@@ -371,14 +527,43 @@ def _parse_db3(filepath: str) -> dict[str, Any]:
                     })
                     if sev in ("WARN", "ERROR", "FATAL"):
                         timeline_events.append({
-                            "t": float(timestamp - (start_time or timestamp)),
+                            "t": float(rel),
                             "type": "log",
                             "sev": sev.lower(),
                             "topic": topic,
                             "label": msg_text[:40],
                         })
-                elif topic in ("/tf", "/tf_static"):
+                elif topic in tf_connections:
                     tf_parser.parse(msg)
+                elif topic in diag_connections:
+                    status_list = getattr(msg, "status", None) or []
+                    for status in status_list:
+                        level_int = getattr(status, "level", 0)
+                        level_map = {0: "OK", 1: "WARN", 2: "ERROR", 3: "STALE"}
+                        level_str = level_map.get(level_int, "OK")
+                        
+                        name = getattr(status, "name", "unknown")
+                        msg_text = getattr(status, "message", "")
+                        hw_id = getattr(status, "hardware_id", "")
+                        
+                        kv_list = getattr(status, "values", [])
+                        values = {}
+                        for kv in kv_list:
+                            k = getattr(kv, "key", None)
+                            v = getattr(kv, "value", None)
+                            if k is not None:
+                                values[k] = str(v)
+                                
+                        diagnostics.append({
+                            "t": str(timedelta(seconds=rel)),
+                            "level": level_str,
+                            "name": name,
+                            "message": msg_text,
+                            "hardware_id": hw_id,
+                            "values": values,
+                            "values_json": json.dumps(values),
+                            "topic": topic,
+                        })
 
     except Exception as exc:
         warnings.append(f"DB3 reader failed: {exc}")
@@ -389,6 +574,16 @@ def _parse_db3(filepath: str) -> dict[str, Any]:
     logs.sort(key=lambda l: l["t"])
     for idx, log in enumerate(logs):
         log["id"] = f"l_{idx + 1}"
+
+    sensors = []
+    for idx, td in enumerate(topics_dict.values()):
+        s_info = _extract_sensor_info(td["name"], td["type"])
+        if s_info:
+            s_info["id"] = f"s_{len(sensors) + 1}"
+            sensors.append(s_info)
+
+    for idx, d in enumerate(diagnostics):
+        d["id"] = f"d_{idx + 1}"
 
     total_messages = 0
     for td in topics_dict.values():
@@ -413,6 +608,8 @@ def _parse_db3(filepath: str) -> dict[str, Any]:
         "kgraph": {"nodes": [], "edges": []},
         "frames": tf_parser.frames_list(),
         "replay": [],
+        "sensors": sensors,
+        "diagnostics": diagnostics,
         "parse_warnings": warnings,
     }
 

@@ -15,7 +15,7 @@ All tools are real Neo4j-backed implementations. No stubs.
 Tool modules
 ------------
 rosbag_reader:
-  retrieve_logs, read_tf_chain, read_diagnostics
+  retrieve_logs, query_graph, read_tf_chain, read_diagnostics
 
 trajectory_analyzer:
   query_topic, query_topic_rate

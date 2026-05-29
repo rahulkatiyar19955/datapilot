@@ -14,13 +14,33 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
+from app.llm.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
 
+def _clean_schema(d: Any) -> Any:
+    """Recursively remove additionalProperties/additional_properties from schemas.
+    The Gemini API / google-genai SDK does not support them in tool declarations.
+    """
+    if isinstance(d, dict):
+        return {
+            k: _clean_schema(v)
+            for k, v in d.items()
+            if k not in ("additionalProperties", "additional_properties")
+        }
+    elif isinstance(d, list):
+        return [_clean_schema(x) for x in d]
+    return d
+
+
 def _to_gemini_function_declarations(tools: list[ToolDef]) -> list[dict[str, Any]]:
     return [
-        {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
+        {
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": _clean_schema(t["parameters"]),
+        }
         for t in tools
     ]
 
@@ -38,7 +58,10 @@ def _to_gemini_contents(messages: list[Message]) -> list[dict[str, Any]]:
             if m.get("content"):
                 parts.append({"text": m["content"]})
             for tc in m["tool_calls"]:
-                parts.append({"function_call": {"name": tc["name"], "args": tc["arguments"]}})
+                fc_part: dict[str, Any] = {"function_call": {"name": tc["name"], "args": tc["arguments"]}}
+                if "thought_signature" in tc:
+                    fc_part["thought_signature"] = tc["thought_signature"]
+                parts.append(fc_part)
         elif role == "tool":
             parts = [{
                 "function_response": {
@@ -79,6 +102,7 @@ class GeminiClient:
         elif "gemini-3.1-pro" in model_id:
             self.actual_model_name = "gemini-3.1-pro-preview"
 
+    @retry_async()
     async def complete(
         self,
         *,
@@ -134,11 +158,14 @@ class GeminiClient:
             for part in getattr(candidate.content, "parts", []) or []:
                 fc = getattr(part, "function_call", None)
                 if fc:
-                    tool_calls.append({
+                    tc_dict: ToolCall = {
                         "id": f"gemini_{fc.name}_{len(tool_calls)}",
                         "name": fc.name,
                         "arguments": dict(fc.args) if getattr(fc, "args", None) else {},
-                    })
+                    }
+                    if getattr(part, "thought_signature", None):
+                        tc_dict["thought_signature"] = part.thought_signature
+                    tool_calls.append(tc_dict)
 
         usage = getattr(resp, "usage_metadata", None)
         return {

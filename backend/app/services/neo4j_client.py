@@ -74,17 +74,73 @@ class Neo4jClient:
             session.run(vector_query)
 
     def clear_session(self, session_id: str):
-        # Delete Session, its Logs, Topics, Anomalies, and Frames
+        # Delete Session, its Logs, Topics, Anomalies, Frames, Sensors, and Diagnostics
         query = """
         MATCH (s:Session {id: $session_id})
         OPTIONAL MATCH (s)-[:HAS_LOG]->(l:Log)
         OPTIONAL MATCH (s)-[:HAS_TOPIC]->(t:Topic)
         OPTIONAL MATCH (s)-[:HAS_ANOMALY]->(a:Anomaly)
+        OPTIONAL MATCH (s)-[:HAS_SENSOR]->(sen:Sensor)
+        OPTIONAL MATCH (s)-[:HAS_DIAGNOSTIC]->(d:DiagnosticStatus)
         OPTIONAL MATCH (f:Frame {session_id: $session_id})
-        DETACH DELETE s, l, t, a, f
+        DETACH DELETE s, l, t, a, sen, d, f
         """
         with self.driver.session() as session:
             session.run(query, {"session_id": session_id})
+            
+    def write_sensors(self, session_id: str, sensors: list[dict]):
+        if not sensors:
+            return
+        query = """
+        MATCH (s:Session {id: $session_id})
+        UNWIND $sensors_list AS sensor_data
+        CREATE (sen:Sensor {
+            id: sensor_data.id,
+            name: sensor_data.name,
+            topic: sensor_data.topic,
+            type: sensor_data.type,
+            msg_type: sensor_data.msg_type,
+            session_id: $session_id
+        })
+        CREATE (s)-[:HAS_SENSOR]->(sen)
+        """
+        with self.driver.session() as session:
+            session.run(query, {"session_id": session_id, "sensors_list": sensors})
+
+    def write_diagnostics(self, session_id: str, diagnostics: list[dict]):
+        if not diagnostics:
+            return
+        # Collect the (few) Sensor nodes once up front, then match in-memory per
+        # diagnostic — avoids a per-row Sensor scan inside the UNWIND loop.
+        query = """
+        MATCH (s:Session {id: $session_id})
+        OPTIONAL MATCH (sen:Sensor {session_id: $session_id})
+        WITH s, collect(sen) AS sensors
+        UNWIND $diagnostics_list AS diag_data
+        CREATE (d:DiagnosticStatus {
+            id: diag_data.id,
+            ts: diag_data.t,
+            level: diag_data.level,
+            name: diag_data.name,
+            message: diag_data.message,
+            hardware_id: diag_data.hardware_id,
+            values_json: diag_data.values_json,
+            topic: diag_data.topic,
+            session_id: $session_id
+        })
+        CREATE (s)-[:HAS_DIAGNOSTIC]->(d)
+
+        // Link to Sensor if the name or hardware_id matches the sensor's name/topic
+        WITH d, diag_data, sensors
+        UNWIND sensors AS sen
+        WITH d, diag_data, sen
+        WHERE sen.topic = diag_data.topic
+           OR sen.name = diag_data.hardware_id
+           OR diag_data.name CONTAINS sen.name
+        CREATE (d)-[:REPORTS_ON]->(sen)
+        """
+        with self.driver.session() as session:
+            session.run(query, {"session_id": session_id, "diagnostics_list": diagnostics})
             
     def write_logs(self, session_id: str, logs: list[dict]):
         """

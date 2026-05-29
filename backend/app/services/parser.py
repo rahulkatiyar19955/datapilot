@@ -8,6 +8,58 @@ import json
 
 from app.services.tf_parser import TFParser
 
+_LOG_SCHEMAS = frozenset([
+    "rcl_interfaces/msg/Log",   # ROS 2 standard (/rosout)
+    "rosgraph_msgs/Log",        # ROS 1 compat
+    "foxglove.Log",             # Foxglove Studio (protobuf)
+])
+
+_TF_SCHEMAS = frozenset([
+    "tf2_msgs/msg/TFMessage",
+    "geometry_msgs/msg/TransformStamped",
+])
+
+_DIAGNOSTIC_SCHEMAS = frozenset([
+    "diagnostic_msgs/DiagnosticArray",
+    "diagnostic_msgs/msg/DiagnosticArray",
+])
+
+def _extract_sensor_info(topic_name: str, msg_type: str) -> dict[str, str] | None:
+    if not isinstance(topic_name, str) or not topic_name or not isinstance(msg_type, str) or not msg_type:
+        return None
+    t = msg_type.lower()
+    sensor_type = None
+    if "laserscan" in t:
+        sensor_type = "LiDAR"
+    elif "pointcloud2" in t:
+        sensor_type = "PointCloud"
+    elif "imu" in t:
+        sensor_type = "IMU"
+    elif "image" in t:
+        sensor_type = "Camera"
+    elif "navsatfix" in t:
+        sensor_type = "GPS"
+    elif "odometry" in t:
+        sensor_type = "Odometry"
+    elif "range" in t:
+        sensor_type = "Range"
+        
+    if not sensor_type:
+        return None
+        
+    name = topic_name.strip("/")
+    if name.startswith("sensors/"):
+        name = name[len("sensors/"):]
+    elif name.startswith("sensor/"):
+        name = name[len("sensor/"):]
+        
+    return {
+        "name": name,
+        "topic": topic_name,
+        "type": sensor_type,
+        "msg_type": msg_type
+    }
+
 logger = logging.getLogger(__name__)
 
 # The Docker container mounts the host home directory at this path (read-only).
@@ -308,6 +360,32 @@ class IngestionParser:
 
             # Surface anomalies as a first-class field (Phase 3.§3.7 endpoint)
             data["anomalies"] = _derive_anomalies(data.get("timeline_events", []), data["logs"])
+            
+            # Extract mock sensors
+            mock_sensors = []
+            for idx, t in enumerate(data.get("topics", [])):
+                s_info = _extract_sensor_info(t["name"], t["type"])
+                if s_info:
+                    s_info["id"] = f"s_{len(mock_sensors) + 1}"
+                    mock_sensors.append(s_info)
+            data["sensors"] = mock_sensors
+
+            # Extract mock diagnostics
+            mock_diagnostics = []
+            for idx, log in enumerate(data.get("logs", [])):
+                if log.get("topic") == "/diagnostics" or log.get("node") == "/diagnostics":
+                    mock_diagnostics.append({
+                        "id": f"d_{len(mock_diagnostics) + 1}",
+                        "t": log["t"],
+                        "level": log["sev"],
+                        "name": log["node"],
+                        "message": log["text"],
+                        "hardware_id": "lidar_front_mock" if "LiDAR" in (log.get("text") or "") else "generic_mock",
+                        "values": {"raw": log["text"]},
+                        "values_json": json.dumps({"raw": log["text"]}),
+                        "topic": log["topic"]
+                    })
+            data["diagnostics"] = mock_diagnostics
             return data
 
         # Resolve the path — translates host paths to Docker-mounted equivalents.
@@ -404,10 +482,12 @@ class IngestionParser:
         # For Foxglove/protobuf bags, use the mcap-parser service instead.
         from mcap.reader import make_reader
         from mcap_ros2.reader import read_ros2_messages
+        import json
 
         logs = []
         topics_dict = {}
         timeline_events = []
+        diagnostics = []
         start_time = None
         end_time = None
 
@@ -426,9 +506,20 @@ class IngestionParser:
                     "msgs": 0,
                 }
 
-        # Second pass: iterate decoded ROS 2 messages for /rosout and /tf only.
-        # read_ros2_messages reopens the file internally.
-        DECODE_TOPICS = {"/rosout", "/tf", "/tf_static"}
+        log_topics = set()
+        tf_topics = set()
+        diag_topics = set()
+
+        for topic, info in topics_dict.items():
+            t_type = info["type"]
+            if t_type in _LOG_SCHEMAS:
+                log_topics.add(topic)
+            elif t_type in _TF_SCHEMAS or topic in ("/tf", "/tf_static"):
+                tf_topics.add(topic)
+            elif t_type in _DIAGNOSTIC_SCHEMAS:
+                diag_topics.add(topic)
+
+        decode_topics = log_topics | tf_topics | diag_topics
         sev_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
 
         for msg_info in read_ros2_messages(filepath):
@@ -444,36 +535,67 @@ class IngestionParser:
                 topics_dict[topic]["msgs"] += 1
 
             # Only decode messages we actually need
-            if topic not in DECODE_TOPICS:
+            if topic not in decode_topics:
                 continue
 
             msg = msg_info.ros_msg
+            rel = timestamp - start_time
 
-            if topic == "/rosout":
+            if topic in log_topics:
                 node = getattr(msg, "name", "unknown")
                 msg_text = getattr(msg, "msg", "")
                 level_int = getattr(msg, "level", 20)
                 sev = sev_map.get(level_int, "INFO")
-                time_str = str(timedelta(seconds=timestamp - start_time))
+                time_str = str(timedelta(seconds=rel))
                 logs.append({
                     "id": f"l_{len(logs) + 1}",
                     "t": time_str,
                     "node": node,
                     "sev": sev,
                     "text": msg_text,
-                    "topic": "/rosout",
+                    "topic": topic,
                 })
                 if sev in ["WARN", "ERROR", "FATAL"]:
                     timeline_events.append({
-                        "t": float(timestamp - start_time),
+                        "t": float(rel),
                         "type": "log",
                         "sev": sev.lower(),
                         "topic": topic,
                         "label": msg_text[:40],
                     })
 
-            elif topic in ["/tf", "/tf_static"]:
+            elif topic in tf_topics:
                 self.tf_parser.parse_tf_message(msg)
+
+            elif topic in diag_topics:
+                status_list = getattr(msg, "status", None) or []
+                for status in status_list:
+                    level_int = getattr(status, "level", 0)
+                    level_map = {0: "OK", 1: "WARN", 2: "ERROR", 3: "STALE"}
+                    level_str = level_map.get(level_int, "OK")
+                    
+                    name = getattr(status, "name", "unknown")
+                    msg_text = getattr(status, "message", "")
+                    hw_id = getattr(status, "hardware_id", "")
+                    
+                    kv_list = getattr(status, "values", [])
+                    values = {}
+                    for kv in kv_list:
+                        k = getattr(kv, "key", None)
+                        v = getattr(kv, "value", None)
+                        if k is not None:
+                            values[k] = str(v)
+                            
+                    diagnostics.append({
+                        "t": str(timedelta(seconds=rel)),
+                        "level": level_str,
+                        "name": name,
+                        "message": msg_text,
+                        "hardware_id": hw_id,
+                        "values": values,
+                        "values_json": json.dumps(values),
+                        "topic": topic,
+                    })
 
         dur = (end_time - start_time) if start_time and end_time else 0.0
 
@@ -482,6 +604,16 @@ class IngestionParser:
         for td in topics_dict.values():
             td["hz"] = round(td["msgs"] / dur, 2) if dur > 0 else 0.0
             total_messages += td["msgs"]
+
+        sensors = []
+        for idx, td in enumerate(topics_dict.values()):
+            s_info = _extract_sensor_info(td["name"], td["type"])
+            if s_info:
+                s_info["id"] = f"s_{len(sensors) + 1}"
+                sensors.append(s_info)
+
+        for idx, d in enumerate(diagnostics):
+            d["id"] = f"d_{idx + 1}"
 
         return {
             "session_id": str(uuid.uuid4()),
@@ -499,20 +631,26 @@ class IngestionParser:
             "anomalies": _derive_anomalies(timeline_events, logs),
             "kgraph": {"nodes": [], "edges": []},
             "frames": self.tf_parser.get_frames_list(),
-            "replay": []
+            "replay": [],
+            "sensors": sensors,
+            "diagnostics": diagnostics,
         }
 
     def _parse_db3(self, filepath: str) -> Dict[str, Any]:
         # Fallback raw SQLite db3 reader using rosbags
         from rosbags.rosbag2 import Reader
         from rosbags.serde import deserialize_cdr
+        import json
 
         logs = []
         topics_dict = {}
+        diagnostics = []
         start_time = None
         end_time = None
 
-        DECODE_TOPICS = {"/rosout", "/tf", "/tf_static"}
+        log_connections = set()
+        tf_connections = set()
+        diag_connections = set()
         sev_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
 
         with Reader(filepath) as reader:
@@ -526,6 +664,14 @@ class IngestionParser:
                         "type": connection.msgtype,
                         "msgs": 0,
                     }
+                if connection.msgtype in _LOG_SCHEMAS:
+                    log_connections.add(connection.topic)
+                elif connection.msgtype in _TF_SCHEMAS or connection.topic in ("/tf", "/tf_static"):
+                    tf_connections.add(connection.topic)
+                elif connection.msgtype in _DIAGNOSTIC_SCHEMAS:
+                    diag_connections.add(connection.topic)
+
+            decode_topics = log_connections | tf_connections | diag_connections
 
             for connection, timestamp, rawdata in reader.messages():
                 topic = connection.topic
@@ -538,7 +684,7 @@ class IngestionParser:
                 topics_dict[topic]["msgs"] += 1
 
                 # Only deserialize messages we actually need to analyse
-                if topic not in DECODE_TOPICS:
+                if topic not in decode_topics:
                     continue
 
                 try:
@@ -546,22 +692,54 @@ class IngestionParser:
                 except Exception:
                     continue
 
-                if topic == "/rosout":
+                rel = t_sec - start_time
+
+                if topic in log_connections:
                     node = getattr(msg, "name", "unknown")
                     msg_text = getattr(msg, "msg", "")
                     level_int = getattr(msg, "level", 20)
                     sev = sev_map.get(level_int, "INFO")
                     logs.append({
                         "id": f"l_{len(logs) + 1}",
-                        "t": str(timedelta(seconds=t_sec - start_time)),
+                        "t": str(timedelta(seconds=rel)),
                         "node": node,
                         "sev": sev,
                         "text": msg_text,
-                        "topic": "/rosout",
+                        "topic": topic,
                     })
 
-                elif topic in ["/tf", "/tf_static"]:
+                elif topic in tf_connections:
                     self.tf_parser.parse_tf_message(msg)
+
+                elif topic in diag_connections:
+                    status_list = getattr(msg, "status", None) or []
+                    for status in status_list:
+                        level_int = getattr(status, "level", 0)
+                        level_map = {0: "OK", 1: "WARN", 2: "ERROR", 3: "STALE"}
+                        level_str = level_map.get(level_int, "OK")
+                        
+                        name = getattr(status, "name", "unknown")
+                        msg_text = getattr(status, "message", "")
+                        hw_id = getattr(status, "hardware_id", "")
+                        
+                        kv_list = getattr(status, "values", [])
+                        values = {}
+                        for kv in kv_list:
+                            k = getattr(kv, "key", None)
+                            v = getattr(kv, "value", None)
+                            if k is not None:
+                                values[k] = str(v)
+                                
+                        diagnostics.append({
+                            "t": str(timedelta(seconds=rel)),
+                            "level": level_str,
+                            "name": name,
+                            "message": msg_text,
+                            "hardware_id": hw_id,
+                            "values": values,
+                            "values_json": json.dumps(values),
+                            "topic": topic,
+                        })
 
         dur = (end_time - start_time) if start_time and end_time else 0.0
 
@@ -570,6 +748,16 @@ class IngestionParser:
         for td in topics_dict.values():
             td["hz"] = round(td["msgs"] / dur, 2) if dur > 0 else 0.0
             total_messages += td["msgs"]
+
+        sensors = []
+        for idx, td in enumerate(topics_dict.values()):
+            s_info = _extract_sensor_info(td["name"], td["type"])
+            if s_info:
+                s_info["id"] = f"s_{len(sensors) + 1}"
+                sensors.append(s_info)
+
+        for idx, d in enumerate(diagnostics):
+            d["id"] = f"d_{idx + 1}"
 
         return {
             "session_id": str(uuid.uuid4()),
@@ -587,7 +775,9 @@ class IngestionParser:
             "anomalies": [],
             "kgraph": {"nodes": [], "edges": []},
             "frames": self.tf_parser.get_frames_list(),
-            "replay": []
+            "replay": [],
+            "sensors": sensors,
+            "diagnostics": diagnostics,
         }
 
 ingestion_parser = IngestionParser()

@@ -122,8 +122,10 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
         logger.exception("neo4j vector search failed")
         return {"ok": False, "error": {"code": "neo4j_failed", "message": str(exc), "retryable": True}}
 
-    if time_window:
-        lo, hi = time_window
+    if time_window and len(time_window) >= 2:
+        lo, hi = float(time_window[0]), float(time_window[-1])
+        if lo > hi:
+            lo, hi = hi, lo
         def in_window(ts: str) -> bool:
             try:
                 # ts is a stringified HH:MM:SS.mmm — fall back to passing through

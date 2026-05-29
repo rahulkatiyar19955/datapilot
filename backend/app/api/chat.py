@@ -45,11 +45,21 @@ def _format_sse(event: str, data: Any) -> dict[str, str]:
 
 
 def _session_summary_string(record: SessionRecord) -> str:
+    topics_str = ""
+    if record.topics_json:
+        try:
+            td = json.loads(record.topics_json)
+            if td:
+                names = [f"{t['name']}({t.get('type', '?')})" for t in td[:15]]
+                topics_str = f", topics=[{', '.join(names)}]"
+        except Exception:
+            pass
     return (
         f"filename={record.filename}, "
         f"robot={record.robot_name or 'unknown'}, "
         f"duration_s={record.duration_seconds or 0}, "
         f"total_messages={record.total_messages or 0}"
+        f"{topics_str}"
     )
 
 
@@ -286,7 +296,9 @@ def _summary_for(spec_output: dict[str, Any]) -> str:
     findings = spec_output.get("findings", []) or []
     if not findings:
         return f"specialist returned {len(findings)} finding(s)"
-    return f"{len(findings)} finding(s); top: {findings[0].get('text','')[:80]}"
+    first = findings[0]
+    top_text = first.get("text", str(first))[:80] if isinstance(first, dict) else str(first)[:80]
+    return f"{len(findings)} finding(s); top: {top_text}"
 
 
 async def _persist_turn(
