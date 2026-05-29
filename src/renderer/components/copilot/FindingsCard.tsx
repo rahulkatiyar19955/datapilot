@@ -1,4 +1,6 @@
 import type { JSX } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { SeverityDot } from "@renderer/components/ui/SeverityDot";
 import type { Finding } from "@shared/types";
 import type { Severity } from "@renderer/components/ui/SeverityDot";
@@ -43,20 +45,25 @@ export function FindingsCard({ findings }: FindingsCardProps): JSX.Element {
             <SeverityDot sev={SEV_MAP[f.sev]} />
             <div className="flex1">
               <div
+                className="chat-md"
                 style={{
                   fontSize: 12.5,
                   color: "var(--color-text-1)",
                   lineHeight: 1.45,
                 }}
               >
-                {f.text}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {f.text}
+                </ReactMarkdown>
               </div>
               {f.detail && (
                 <div
-                  className="dim mono"
+                  className="dim mono chat-md"
                   style={{ fontSize: 10.5, marginTop: 3 }}
                 >
-                  {f.detail}
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {f.detail}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>

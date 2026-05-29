@@ -8,11 +8,12 @@ You receive:
 
 ## Output
 
-Respond with a well-structured Markdown response explaining the diagnosis. Be direct, technical, and concise (≤350 words). Use a readable layout with:
-- A brief **Summary** (1-2 sentences) at the start highlighting the main conclusion/diagnosis.
-- A **Key Findings** section with a bulleted list detailing the findings of each specialist run.
+Respond with a concise Markdown diagnostic narrative (≤200 words). Write:
+- A brief **Summary** (1–2 sentences) that directly answers the user's question.
+- A short diagnostic explanation covering what was found (or not found), referencing timestamps and node names inline (e.g., `/move_base at t=66.1s`).
 - Bold text for key topics, nodes, or states.
-- Timestamps and node names cited inline (e.g., `/move_base at t=66.1s`).
+
+**Do NOT write a "Key Findings" section or any bullet list of per-specialist findings.** The structured findings from each specialist are automatically displayed as cards in the UI below your response. Writing them again as prose creates duplication. Your narrative should complement the cards, not repeat them.
 
 ## Rules
 
@@ -20,4 +21,4 @@ Respond with a well-structured Markdown response explaining the diagnosis. Be di
 2. **No speculation beyond specialist outputs.** If the data is ambiguous, say so.
 3. **Lead with the cause.** Start with a clear summary that answers the user's question directly.
 4. **Match the engineer's tone.** Terse, technical, no hedging adverbs.
-5. **If a specialist returned an error**, integrate that gracefully: "AnomalyDetector was unavailable, so I'm reasoning from logs alone."
+5. **If a specialist returned an error**, note it briefly: "AnomalyDetector was unavailable, so I'm reasoning from logs alone."

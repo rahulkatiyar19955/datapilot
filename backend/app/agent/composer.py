@@ -40,9 +40,10 @@ def _collect_findings(state: GraphState) -> tuple[list[Finding], list[str]]:
         for f in spec_result.get("findings", []):
             if not isinstance(f, dict):
                 continue
-            if not f.get("log_ids"):
-                dropped.append(f.get("text", "")[:60])
-                continue
+            # Keep findings even when log_ids is empty — "no issues found" findings
+            # are valid summary observations that don't need a specific log citation.
+            # _filter_uncited() below handles findings that DO have log_ids but
+            # reference IDs that don't exist in Neo4j.
             findings.append(f)  # type: ignore[arg-type]
     return findings, dropped
 
@@ -85,11 +86,19 @@ def _resolve_citations(session_id: str, findings: list[Finding]) -> list[Citatio
 
 
 def _filter_uncited(findings: list[Finding], valid_log_ids: set[str]) -> tuple[list[Finding], list[str]]:
-    """Drop findings whose log_ids don't resolve in Neo4j."""
+    """Drop findings whose log_ids are non-empty but NONE resolve in Neo4j.
+
+    Findings with an empty log_ids list are summary/nominal observations
+    (e.g. "No anomalies detected") — these are always kept.
+    """
     kept: list[Finding] = []
     dropped: list[str] = []
     for f in findings:
-        if any(lid in valid_log_ids for lid in f.get("log_ids", [])):
+        ids = f.get("log_ids", [])
+        if not ids:
+            # Summary finding — no specific log event to cite; always keep.
+            kept.append(f)
+        elif any(lid in valid_log_ids for lid in ids):
             kept.append(f)
         else:
             dropped.append(f.get("text", "")[:60])
