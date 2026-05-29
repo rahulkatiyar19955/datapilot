@@ -6,7 +6,7 @@ questions about any bag, including bags that have no /rosout log messages.
 
 Node labels and their properties:
   - Session: id, filename, robot_id, duration_s, started_at
-  - Log: id, ts (timestamp float), severity, node, msg (log message text - NOT message), topic, type
+  - Log: id, ts (timestamp string, format "HH:MM:SS.mmm"), severity, node, msg (log message text - NOT message), topic, type
   - Topic: name, type, hz, total_messages
   - Anomaly: id, ts (timestamp float), kind, severity, source_log_id, confidence, topic, label
   - Frame: name, session_id
@@ -34,7 +34,7 @@ DESCRIPTION = (
     "Always include $session_id in your MATCH/WHERE clause. "
     "Node labels and their properties:\n"
     " - Session: id, filename, robot_id, duration_s, started_at\n"
-    " - Log: id, ts (timestamp float), severity, node, msg (log text - NOT message), topic, type\n"
+    " - Log: id, ts (timestamp string, format \"HH:MM:SS.mmm\"), severity, node, msg (log text - NOT message), topic, type\n"
     " - Topic: name, type, hz, total_messages\n"
     " - Anomaly: id, ts (timestamp float), kind, severity, source_log_id, confidence, topic, label\n"
     " - Frame: name, session_id\n"
@@ -108,7 +108,9 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
             },
         }
 
-    # Append LIMIT if the query doesn't already have one.
+    # Append LIMIT if the query doesn't already have one. Strip any trailing
+    # semicolon first so appending the LIMIT clause can't produce a syntax error.
+    cypher = cypher.rstrip().rstrip(";")
     if not re.search(r"\bLIMIT\b", cypher, re.IGNORECASE):
         cypher = f"{cypher}\nLIMIT {limit}"
 

@@ -25,6 +25,8 @@ _DIAGNOSTIC_SCHEMAS = frozenset([
 ])
 
 def _extract_sensor_info(topic_name: str, msg_type: str) -> dict[str, str] | None:
+    if not isinstance(topic_name, str) or not topic_name or not isinstance(msg_type, str) or not msg_type:
+        return None
     t = msg_type.lower()
     sensor_type = None
     if "laserscan" in t:
@@ -378,7 +380,7 @@ class IngestionParser:
                         "level": log["sev"],
                         "name": log["node"],
                         "message": log["text"],
-                        "hardware_id": "lidar_front_mock" if "LiDAR" in log["text"] else "generic_mock",
+                        "hardware_id": "lidar_front_mock" if "LiDAR" in (log.get("text") or "") else "generic_mock",
                         "values": {"raw": log["text"]},
                         "values_json": json.dumps({"raw": log["text"]}),
                         "topic": log["topic"]

@@ -110,8 +110,12 @@ class Neo4jClient:
     def write_diagnostics(self, session_id: str, diagnostics: list[dict]):
         if not diagnostics:
             return
+        # Collect the (few) Sensor nodes once up front, then match in-memory per
+        # diagnostic — avoids a per-row Sensor scan inside the UNWIND loop.
         query = """
         MATCH (s:Session {id: $session_id})
+        OPTIONAL MATCH (sen:Sensor {session_id: $session_id})
+        WITH s, collect(sen) AS sensors
         UNWIND $diagnostics_list AS diag_data
         CREATE (d:DiagnosticStatus {
             id: diag_data.id,
@@ -125,16 +129,15 @@ class Neo4jClient:
             session_id: $session_id
         })
         CREATE (s)-[:HAS_DIAGNOSTIC]->(d)
-        
+
         // Link to Sensor if the name or hardware_id matches the sensor's name/topic
-        WITH d, diag_data
-        OPTIONAL MATCH (sen:Sensor {session_id: $session_id})
-        WHERE sen.topic = diag_data.topic 
-           OR sen.name = diag_data.hardware_id 
+        WITH d, diag_data, sensors
+        UNWIND sensors AS sen
+        WITH d, diag_data, sen
+        WHERE sen.topic = diag_data.topic
+           OR sen.name = diag_data.hardware_id
            OR diag_data.name CONTAINS sen.name
-        FOREACH (_ IN CASE WHEN sen IS NULL THEN [] ELSE [1] END |
-            CREATE (d)-[:REPORTS_ON]->(sen)
-        )
+        CREATE (d)-[:REPORTS_ON]->(sen)
         """
         with self.driver.session() as session:
             session.run(query, {"session_id": session_id, "diagnostics_list": diagnostics})

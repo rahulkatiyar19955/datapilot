@@ -253,7 +253,10 @@ class BaseSpecialist:
             obj["confidence"] = 0.5
         # Drop any non-dict entries in findings (malformed LLM output guard).
         # Non-dict items (e.g. strings) would cause AttributeError downstream.
-        obj["findings"] = [f for f in obj.get("findings", []) if isinstance(f, dict)]
+        findings = obj.get("findings")
+        if not isinstance(findings, list):
+            findings = []
+        obj["findings"] = [f for f in findings if isinstance(f, dict)]
         # Ensure findings have log_ids field.
         for f in obj["findings"]:
             f.setdefault("log_ids", [])

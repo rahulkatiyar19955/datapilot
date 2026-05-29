@@ -26,6 +26,8 @@ def rate_limit_delay(exc: BaseException) -> float | None:
     error, else None. The delay is the server-suggested value when we can cheaply
     extract one; otherwise 0.0 (caller falls back to exponential backoff)."""
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if isinstance(status, str) and status.isdigit():
+        status = int(status)
     name = type(exc).__name__
     msg = str(exc)
 
@@ -86,7 +88,7 @@ def retry_async(max_attempts: int = 4, base_delay: float = 2.0, max_delay: float
                     delay = rate_limit_delay(exc)
                     if delay is None or attempt == max_attempts - 1:
                         raise
-                    wait = delay or min(base_delay * (2 ** attempt), max_delay)
+                    wait = min(delay or (base_delay * (2 ** attempt)), max_delay)
                     logger.warning(
                         "LLM rate-limited (%s); retry %d/%d in %.1fs",
                         type(exc).__name__, attempt + 1, max_attempts - 1, wait,

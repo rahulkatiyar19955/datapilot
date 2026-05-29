@@ -42,6 +42,8 @@ _DIAGNOSTIC_SCHEMAS = frozenset([
 ])
 
 def _extract_sensor_info(topic_name: str, msg_type: str) -> dict[str, str] | None:
+    if not isinstance(topic_name, str) or not topic_name or not isinstance(msg_type, str) or not msg_type:
+        return None
     t = msg_type.lower()
     sensor_type = None
     if "laserscan" in t:
