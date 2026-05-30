@@ -4,6 +4,13 @@ import { dirname, join } from "node:path";
 import { dockerOrchestrator } from "./dockerOrchestrator";
 import { registerIpcHandlers } from "./ipcHandlers";
 
+// Isolate development environment settings & keychain to prevent permission conflicts
+if (!app.isPackaged) {
+  app.setName("DataPilot-Dev");
+  const userDataPath = join(app.getPath("appData"), "DataPilot-Dev");
+  app.setPath("userData", userDataPath);
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Enable remote debugging port in development mode so AI agents can inspect the app screen
