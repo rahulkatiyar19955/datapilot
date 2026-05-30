@@ -198,7 +198,7 @@ function AgentCard({
   const [modelInput, setModelInput] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const effectiveModel = overrideModel || defaultModel || "claude-sonnet-4-5-20250929";
+  const effectiveModel = overrideModel || defaultModel || "gemini-3.1-flash-lite";
   const Comp = Icon[a.iconName] as
     | ((props: { size?: number }) => JSX.Element)
     | undefined;

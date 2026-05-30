@@ -15,6 +15,7 @@ class DockerOrchestrator {
   private socketPath: string;
   private status: DockerStatus = { state: "pending" };
   private activeContainers: string[] = [];
+  private statusCallbacks: ((status: DockerStatus) => void)[] = [];
 
   constructor() {
     this.socketPath =
@@ -83,11 +84,26 @@ class DockerOrchestrator {
     return this.status;
   }
 
+  public onStatusChange(callback: (status: DockerStatus) => void) {
+    this.statusCallbacks.push(callback);
+    return () => {
+      this.statusCallbacks = this.statusCallbacks.filter((cb) => cb !== callback);
+    };
+  }
+
   private setStatus(status: DockerStatus) {
     this.status = status;
     // Emit status change to all renderer windows
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("docker:status-changed", status);
+    }
+    // Notify local main process listeners (copy array to guard against mid-iteration unsubscribes)
+    for (const cb of [...this.statusCallbacks]) {
+      try {
+        cb(status);
+      } catch (err) {
+        console.error("Error in Docker status change callback:", err);
+      }
     }
   }
 
@@ -188,8 +204,9 @@ class DockerOrchestrator {
    * If unpackaged (dev mode), defaults to keeping the tag as defined (typically "latest").
    */
   private resolveImageTag(imageName: string): string {
-    if (app.isPackaged) {
-      const baseImage = imageName.split(":")[0];
+    if (app.isPackaged && imageName.includes("datapilot")) {
+      const lastColon = imageName.lastIndexOf(":");
+      const baseImage = lastColon !== -1 ? imageName.slice(0, lastColon) : imageName;
       return `${baseImage}:${app.getVersion()}`;
     }
     return imageName;
