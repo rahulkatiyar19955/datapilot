@@ -11,10 +11,6 @@ files:
   - package.json
 
 extraResources:
-  # Sample bags shipped with the installer (Phase 12 "Load demo bag" flow).
-  - from: sample_bags
-    to: sample_bags
-    filter: ["**/*"]
   # docker-compose.yml is read at runtime by dockerOrchestrator.ts to discover
   # service definitions. Placed at process.resourcesPath/docker-compose.yml.
   - from: docker-compose.yml
@@ -23,6 +19,7 @@ extraResources:
 asar: true
 
 mac:
+  icon: build/icon.icns
   category: public.app-category.developer-tools
   target:
     - target: dmg
@@ -32,6 +29,9 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  icon: build/icon.icns
 
 win:
   target:
