@@ -8,8 +8,8 @@
 # end-users never have to build from source locally.
 #
 # Triggers:
-#   • push to main  →  :latest + :sha-<commit>
-#   • git tag v*    →  :v1.2.3
+#   • push to main  →  :<version> + :sha-<commit>
+#   • git tag v*    →  :<version> + :sha-<commit>
 #   • pull request  →  build only (no push) for CI validation
 #
 # Images are multi-platform (linux/amd64 + linux/arm64).
@@ -94,20 +94,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get version from package.json
+        id: get_version
+        run: |
+          VERSION=$(jq -r '.version' package.json)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
       # docker/metadata-action generates OCI-compliant image tags and labels.
-      # On main push  → :latest, :sha-abc1234
-      # On tag v1.2.3 → :v1.2.3, :latest
+      # Tags images with the package.json version and commit SHA, avoiding :latest.
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PREFIX }}-${{ matrix.image_suffix }}
           tags: |
-            type=ref,event=branch
+            type=raw,value=${{ steps.get_version.outputs.version }}
             type=sha,prefix=sha-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push image — ${{ matrix.service }}
         uses: docker/build-push-action@v7
