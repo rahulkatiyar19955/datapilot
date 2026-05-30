@@ -188,7 +188,7 @@ class DockerOrchestrator {
    * If unpackaged (dev mode), defaults to keeping the tag as defined (typically "latest").
    */
   private resolveImageTag(imageName: string): string {
-    if (app.isPackaged) {
+    if (app.isPackaged && imageName.includes("datapilot")) {
       const baseImage = imageName.split(":")[0];
       return `${baseImage}:${app.getVersion()}`;
     }
