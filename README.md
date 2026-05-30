@@ -1,15 +1,11 @@
+<p align="center">
+  <img src="build/icon.png" alt="DataPilot Logo" width="80" height="80">
+</p>
+
 <h1 align="center">DataPilot</h1>
 
 <p align="center">
   <strong>AI-powered copilot that helps robotics engineers debug ROS robots instantly.</strong>
-</p>
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="mock_design/datapilot_ui_mockup_dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="mock_design/datapilot_ui_mockup_light.png">
-    <img alt="DataPilot UI Mockup" src="mock_design/datapilot_ui_mockup_dark.png" width="100%">
-  </picture>
 </p>
 
 <p align="center">
@@ -20,6 +16,13 @@
   <a href="https://www.langchain.com/langgraph"><img src="https://img.shields.io/badge/Agents-LangGraph-orange?style=for-the-badge" alt="LangGraph"></a>
 </p>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="mock_design/datapilot_ui_mockup_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="mock_design/datapilot_ui_mockup_light.png">
+    <img alt="DataPilot UI Mockup" src="mock_design/datapilot_ui_mockup_dark.png" width="100%">
+  </picture>
+</p>
 ---
 
 ## 📌 Problem & Solution
