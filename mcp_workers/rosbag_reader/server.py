@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 # orchestrator and by `app.agent.mcp_stdio.WorkerHandle._spawn`).
 from app.agent.tools import retrieve_logs, read_tf_chain
 from app.agent.tools import read_diagnostics
+from app.agent.tools import query_mcap
 
 from mcp_workers._shared.health import start_health_server
 from mcp_workers._shared.wrap_tool import register_tool
@@ -32,6 +33,7 @@ mcp = FastMCP(WORKER_NAME)
 register_tool(mcp, retrieve_logs)
 register_tool(mcp, read_tf_chain)
 register_tool(mcp, read_diagnostics)
+register_tool(mcp, query_mcap)
 
 
 def main() -> None:
