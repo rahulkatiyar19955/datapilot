@@ -52,6 +52,11 @@ export interface DatapilotApi {
   /** Prompts user to pick a ROS bag file via native OS dialogs. */
   file: {
     pickBag(): Promise<string | null>;
+    /** Downloads a sample bag from a URL to local cache, reporting progress 0-100. */
+    downloadSampleBag(
+      url: string,
+      onProgress: (progress: number) => void,
+    ): Promise<string | null>;
   };
   /** Theme preference operations. */
   theme: {

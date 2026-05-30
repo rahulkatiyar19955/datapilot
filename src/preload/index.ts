@@ -41,6 +41,20 @@ const api: DatapilotApi = {
   },
   file: {
     pickBag: () => ipcRenderer.invoke("file:pickBag") as Promise<string | null>,
+    downloadSampleBag: async (url: string, onProgress: (progress: number) => void) => {
+      const reqId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const channel = `file:download:progress:${reqId}`;
+      const handler = (_event: any, progress: number) => onProgress(progress);
+      ipcRenderer.on(channel, handler);
+      try {
+        return await ipcRenderer.invoke("file:downloadSampleBag", url, reqId);
+      } finally {
+        ipcRenderer.removeListener(channel, handler);
+      }
+    },
   },
   theme: {
     get: () =>

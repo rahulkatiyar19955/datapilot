@@ -8,6 +8,8 @@ import {
 } from "electron";
 import fs from "fs";
 import path from "path";
+import https from "https";
+import { Readable } from "stream";
 import { dockerOrchestrator } from "./dockerOrchestrator";
 import type { DockerStatus, StorageUsage } from "@shared/ipc";
 
@@ -109,6 +111,19 @@ function getPathUsage(targetPath: string): StorageUsage {
   };
 }
 
+function getGoogleDriveId(urlStr: string): string | null {
+  try {
+    const url = new URL(urlStr);
+    if (url.hostname.includes("drive.google.com") || url.hostname.includes("docs.google.com")) {
+      const fileMatch = url.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+      if (fileMatch) return fileMatch[1];
+      const id = url.searchParams.get("id");
+      if (id) return id;
+    }
+  } catch {}
+  return null;
+}
+
 export function registerIpcHandlers(): void {
   // App version / platform (already registered in scaffold, here for completeness)
   ipcMain.handle("app:version", () => app.getVersion());
@@ -199,6 +214,139 @@ export function registerIpcHandlers(): void {
     }
     return result.filePaths[0];
   });
+
+  ipcMain.handle(
+    "file:downloadSampleBag",
+    async (event, urlStr: string, reqId: string): Promise<string | null> => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) return null;
+
+      try {
+        const cacheDir = path.join(app.getPath("userData"), "samples");
+        fs.mkdirSync(cacheDir, { recursive: true });
+
+        // Check if it's a Google Drive link
+        const gDriveId = getGoogleDriveId(urlStr);
+
+        if (gDriveId) {
+          // Cross-check cache for Google Drive file
+          const files = fs.readdirSync(cacheDir);
+          const cachedFile = files.find((f) => f.startsWith(`${gDriveId}_`));
+          if (cachedFile) {
+            const destPath = path.join(cacheDir, cachedFile);
+            if (fs.existsSync(destPath) && fs.statSync(destPath).size > 0) {
+              win.webContents.send(`file:download:progress:${reqId}`, 100);
+              return destPath;
+            }
+          }
+        } else {
+          // For non-GDrive files, cross-check cache based on URL hash or filename
+          const url = new URL(urlStr);
+          const fileName = path.basename(url.pathname) || "sample.mcap";
+          const destPath = path.join(cacheDir, fileName);
+          if (fs.existsSync(destPath) && fs.statSync(destPath).size > 0) {
+            win.webContents.send(`file:download:progress:${reqId}`, 100);
+            return destPath;
+          }
+        }
+
+        let downloadUrl = urlStr;
+        let fetchOptions: RequestInit = {};
+
+        if (gDriveId) {
+          downloadUrl = `https://drive.google.com/uc?export=download&id=${gDriveId}`;
+          let response = await fetch(downloadUrl);
+          const contentType = response.headers.get("content-type") || "";
+
+          if (contentType.includes("text/html")) {
+            const html = await response.text();
+            const formMatch = html.match(/<form id="download-form" action="([^"]+)"[^>]*>([\s\S]*?)<\/form>/);
+            
+            if (formMatch) {
+              const action = formMatch[1];
+              const inputsHtml = formMatch[2];
+              
+              const queryParams: string[] = [];
+              const inputRegex = /<input type="hidden" name="([^"]+)" value="([^"]+)"/g;
+              let match;
+              while ((match = inputRegex.exec(inputsHtml)) !== null) {
+                queryParams.push(`${encodeURIComponent(match[1])}=${encodeURIComponent(match[2])}`);
+              }
+              
+              downloadUrl = `${action}?${queryParams.join("&")}`;
+              const cookies = response.headers.getSetCookie();
+              const cookieHeader = cookies.map((c) => c.split(";")[0]).join("; ");
+              fetchOptions = {
+                headers: {
+                  Cookie: cookieHeader,
+                },
+              };
+            } else {
+              throw new Error("Could not find Google Drive confirmation form in response page");
+            }
+          }
+        }
+
+        const response = await fetch(downloadUrl, fetchOptions);
+        if (!response.ok) {
+          throw new Error(`Failed to download: ${response.statusText}`);
+        }
+
+        let fileName = "sample.mcap";
+        if (gDriveId) {
+          const cd = response.headers.get("content-disposition");
+          if (cd) {
+            const match = cd.match(/filename="?([^";]+)"?/);
+            if (match) fileName = match[1];
+          }
+          fileName = `${gDriveId}_${fileName}`;
+        } else {
+          const url = new URL(urlStr);
+          fileName = path.basename(url.pathname) || "sample.mcap";
+        }
+
+        const destPath = path.join(cacheDir, fileName);
+        const totalBytes = parseInt(response.headers.get("content-length") || "0", 10);
+        let downloadedBytes = 0;
+
+        const fileStream = fs.createWriteStream(destPath);
+        if (!response.body) {
+          throw new Error("Response body is not readable");
+        }
+
+        const nodeStream = Readable.fromWeb(response.body as any);
+        nodeStream.on("data", (chunk) => {
+          downloadedBytes += chunk.length;
+          if (totalBytes > 0 && !win.isDestroyed()) {
+            const progress = Math.min(100, Math.round((downloadedBytes / totalBytes) * 100));
+            win.webContents.send(`file:download:progress:${reqId}`, progress);
+          }
+        });
+
+        nodeStream.pipe(fileStream);
+
+        await new Promise((resolve, reject) => {
+          fileStream.on("finish", () => {
+            fileStream.close();
+            resolve(destPath);
+          });
+          nodeStream.on("error", (err) => {
+            fs.unlink(destPath, () => {});
+            reject(err);
+          });
+          fileStream.on("error", (err) => {
+            fs.unlink(destPath, () => {});
+            reject(err);
+          });
+        });
+
+        return destPath;
+      } catch (err) {
+        console.error("file:downloadSampleBag error:", err);
+        return null;
+      }
+    },
+  );
 
   // Theme support
   ipcMain.handle(

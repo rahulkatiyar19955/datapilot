@@ -1,4 +1,4 @@
-import type { JSX } from "react";
+import React, { type JSX } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { useUIStore } from "@renderer/stores/ui";
 import { useSessionStore } from "@renderer/stores/session";
@@ -17,6 +17,123 @@ interface TabDef {
   label: string;
   icon: JSX.Element;
   count: number | null;
+}
+
+const SAMPLE_BAGS = [
+  {
+    id: "sample-1",
+    name: "Agricultural Farm Robot",
+    description: "Agriculture Dataset for autonomous vehicle navigation in a farm environment.",
+    url: "https://drive.google.com/file/d/1i-2b0xVLYmwrnWTLiy4Brb25nsf-oQdW/view?usp=sharing",
+    size: "569 MB",
+  },
+  {
+    id: "sample-2",
+    name: "Robot Arm Pick & Place",
+    description: "Joint states and command trajectories for manipulation.",
+    url: "https://example.com/dummy2.mcap",
+    size: "24 MB",
+  },
+  {
+    id: "sample-3",
+    name: "Drone Flight Log",
+    description: "Odometry, altitude, and control inputs.",
+    url: "https://example.com/dummy3.mcap",
+    size: "12 MB",
+  },
+];
+
+function SampleBagCard({
+  sample,
+  onLoad,
+}: {
+  sample: typeof SAMPLE_BAGS[0];
+  onLoad: (path: string) => void;
+}) {
+  const [downloading, setDownloading] = React.useState(false);
+  const [progress, setProgress] = React.useState(0);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const handleClick = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setProgress(0);
+    setError(null);
+    try {
+      const localPath = await window.datapilot.file.downloadSampleBag(
+        sample.url,
+        (p) => setProgress(p),
+      );
+      if (localPath) {
+        onLoad(localPath);
+      } else {
+        setError("Failed to download");
+      }
+    } catch (err: any) {
+      setError(err.message || "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={handleClick}
+      className="sample-bag-card"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        padding: 16,
+        background: "var(--color-bg-1)",
+        border: "1px solid var(--color-border-1)",
+        borderRadius: 8,
+        cursor: downloading ? "default" : "pointer",
+        position: "relative",
+        overflow: "hidden",
+        width: 240,
+        textAlign: "left",
+      }}
+      onMouseEnter={(e) => {
+        if (!downloading) e.currentTarget.style.borderColor = "var(--color-accent)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--color-border-1)";
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ fontWeight: 600, color: "var(--color-text-0)", fontSize: 14 }}>
+          {sample.name}
+        </div>
+        <div style={{ fontSize: 10, background: "var(--color-bg-2)", color: "var(--color-text-2)", padding: "2px 6px", borderRadius: 4, whiteSpace: "nowrap" }}>
+          {sample.size}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--color-text-2)" }}>
+        {sample.description}
+      </div>
+      {error && <div style={{ fontSize: 11, color: "var(--color-red)" }}>{error}</div>}
+      
+      {downloading && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            height: 3,
+            background: "var(--color-accent)",
+            width: `${progress}%`,
+            transition: "width 0.2s",
+          }}
+        />
+      )}
+      {downloading && (
+        <div style={{ fontSize: 11, color: "var(--color-accent)", marginTop: 4 }}>
+          Downloading... {progress}%
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Workspace(): JSX.Element {
@@ -90,6 +207,18 @@ export function Workspace(): JSX.Element {
           <Button variant="primary" onClick={pickBagFile}>
             <Icon.Upload size={14} /> Load ROS bag
           </Button>
+        </div>
+
+        {/* Sample Bags Section */}
+        <div style={{ marginTop: 40, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-3)", textTransform: "uppercase", letterSpacing: 1 }}>
+            Or try a sample dataset
+          </div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center", maxWidth: 800 }}>
+            {SAMPLE_BAGS.map((sample) => (
+              <SampleBagCard key={sample.id} sample={sample} onLoad={setPendingPath} />
+            ))}
+          </div>
         </div>
       </div>
     );
