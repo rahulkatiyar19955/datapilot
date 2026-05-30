@@ -42,6 +42,7 @@ const PROVIDERS: Provider[] = [
     id: "google",
     name: "Gemini (Google)",
     models: [
+      "gemini-3.1-flash-lite",
       "gemini-3.5-flash (medium thinking)",
       "gemini-3.5-flash (high thinking)",
       "gemini-3.1-pro-preview",

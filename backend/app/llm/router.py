@@ -29,12 +29,12 @@ logger = logging.getLogger(__name__)
 # when Anthropic is absent, _fallback_for_role() cascades to the NIM entry
 # (meta/llama-3.3-70b-instruct) which is a valid NIM model.
 DEFAULT_SPECIALIST_MODELS: dict[str, str] = {
-    "RootCauseAnalyst":    "claude-sonnet-4-5-20250929",
-    "AnomalyDetector":     "claude-sonnet-4-5-20250929",
-    "PerformanceProfiler": "claude-sonnet-4-5-20250929",
-    "ReplayNarrator":      "claude-sonnet-4-5-20250929",
-    "SafetyAuditor":       "claude-opus-4-1-20250805",
-    "ReleaseComparator":   "claude-sonnet-4-5-20250929",
+    "RootCauseAnalyst":    "gemini-3.1-flash-lite",
+    "AnomalyDetector":     "gemini-3.1-flash-lite",
+    "PerformanceProfiler": "gemini-3.1-flash-lite",
+    "ReplayNarrator":      "gemini-3.1-flash-lite",
+    "SafetyAuditor":       "gemini-3.1-flash-lite",
+    "ReleaseComparator":   "gemini-3.1-flash-lite",
 }
 
 # Cheap-fast supervisor cascade. We pick the first whose provider key is
@@ -43,12 +43,12 @@ SUPERVISOR_CASCADE: list[tuple[str, str]] = [
     ("anthropic", "claude-haiku-4-5-20251001"),
     ("openai",    "gpt-5-mini"),
     ("nvidia",    "meta/llama-3.3-70b-instruct"),
-    ("gemini",    "gemini-3.5-flash"),
+    ("gemini",    "gemini-3.1-flash-lite"),
     ("ollama",    "llama3.2"),
 ]
 
 # Default composer model when none is configured.
-DEFAULT_COMPOSER_MODEL = "claude-sonnet-4-5-20250929"
+DEFAULT_COMPOSER_MODEL = "gemini-3.1-flash-lite"
 
 # ---------------------------------------------------------------------------
 # In-memory specialist override store — populated at startup from SQLite and
@@ -87,7 +87,7 @@ def _provider_key_present(provider: str) -> bool:
         return bool(settings.anthropic_api_key)
     if provider == "openai":
         return bool(settings.openai_api_key)
-    if provider == "gemini":
+    if provider == "gemini" or provider == "google":
         return bool(settings.gemini_api_key)
     if provider == "nvidia":
         return bool(settings.nvidia_api_key)
@@ -153,6 +153,8 @@ class LLMRouter:
     def for_supervisor(self) -> LLMClient:
         """Cheap-fast model selected from the cascade; prefers the user's default provider."""
         preferred = settings.default_provider
+        if preferred == "google":
+            preferred = "gemini"
         if preferred and _provider_key_present(preferred):
             for provider, model_id in SUPERVISOR_CASCADE:
                 if provider == preferred:
@@ -176,6 +178,8 @@ class LLMRouter:
         """When a specialist's preferred provider has no key, walk the cascade.
         Tries the user's default_provider before the hardcoded order."""
         default = settings.default_provider
+        if default == "google":
+            default = "gemini"
         if default and default != preferred_provider and _provider_key_present(default):
             for provider, model_id in SUPERVISOR_CASCADE:
                 if provider == default:

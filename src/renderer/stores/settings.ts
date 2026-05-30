@@ -45,8 +45,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   monoFreq: true,
   telemetryUsage: false,
   telemetryCrash: true,
-  defaultProvider: "anthropic",
-  defaultModel: "claude-sonnet-4.5",
+  defaultProvider: "google",
+  defaultModel: "gemini-3.1-flash-lite",
   embeddingModel: "voyage-3 (Anthropic)",
   apiKeys: {
     anthropic: "",
@@ -106,8 +106,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const monoFreq = await getBool("mono_freq", true);
       const telemetryUsage = await getBool("telemetry_usage", false);
       const telemetryCrash = await getBool("telemetry_crash", true);
-      const defaultProvider = await getStr("default_provider", "anthropic");
-      const defaultModel = await getStr("default_model", "claude-sonnet-4.5");
+      const defaultProvider = await getStr("default_provider", "google");
+      const defaultModel = await getStr("default_model", "gemini-3.1-flash-lite");
       const embeddingModel = await getStr(
         "embedding_model",
         "voyage-3 (Anthropic)",
