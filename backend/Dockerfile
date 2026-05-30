@@ -3,6 +3,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Runtime libs for the vendored `mcap` DuckDB extension (query_mcap tool):
+# the extension dynamically links liblz4 (zstd is provided by DuckDB itself).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends liblz4-1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # uv for fast, reproducible installs
 RUN pip install --no-cache-dir uv
 

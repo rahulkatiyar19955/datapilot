@@ -122,8 +122,9 @@ def _extension_path() -> str | None:
     }.get(machine, machine)
     plat = f"{sys_key}_{arch_key}"
 
-    vendor_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "vendor", "mcap")
-    candidate = os.path.join(vendor_dir, plat, "mcap.duckdb_extension")
+    # __file__ = backend/app/agent/tools/query_mcap.py → app/ is three levels up.
+    app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidate = os.path.join(app_dir, "vendor", "mcap", plat, "mcap.duckdb_extension")
     if os.path.exists(candidate):
         return candidate
     return None
@@ -217,9 +218,11 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
         return _error("duckdb_unavailable", f"duckdb not installed: {exc}", False)
 
     try:
-        con = duckdb.connect(database=":memory:")
+        # allow_unsigned_extensions is a startup-time setting — it must be passed
+        # to connect(config=...); it cannot be changed with SET after the database
+        # is running.
+        con = duckdb.connect(database=":memory:", config={"allow_unsigned_extensions": "true"})
         try:
-            con.execute("SET allow_unsigned_extensions=true")
             con.load_extension(ext_path)
             con.load_extension("json")
             cursor = con.execute(final_sql)

@@ -20,6 +20,10 @@ dependencies = [
     "mcap-ros1-support>=0.5.0",
     "mcap-protobuf-support>=0.3.0",
     "rosbags>=0.10.7",
+    # query_mcap tool runs SQL over raw MCAP via the vendored `mcap` DuckDB
+    # extension. Pinned to 1.4.x to match the extension's build ABI (v1.4.4) —
+    # see backend/app/vendor/mcap/README.md before bumping.
+    "duckdb>=1.4,<1.5",
     "pyyaml>=6.0.2",
     "sse-starlette>=2.1.3",
 ]
