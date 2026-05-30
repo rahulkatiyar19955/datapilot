@@ -58,6 +58,9 @@ jobs:
   build-docker:
     name: Build Docker
     needs: bump-version
+    permissions:
+      contents: read   # checkout the tagged ref
+      packages: write  # push images to GHCR (required by docker-publish.yml)
     uses: ./.github/workflows/docker-publish.yml
     with:
       ref: ${{ needs.bump-version.outputs.new_tag }}
@@ -66,6 +69,9 @@ jobs:
   build-electron:
     name: Build Electron
     needs: bump-version
+    permissions:
+      contents: write  # forwarded to electron-build.yml (upload-artifact + future direct release)
+      actions: read    # required for workflow_call artifact scoping
     uses: ./.github/workflows/electron-build.yml
     with:
       ref: ${{ needs.bump-version.outputs.new_tag }}
@@ -73,19 +79,19 @@ jobs:
 
   create-release:
     name: Create Draft Release
-    needs: [bump-version, build-electron]
+    needs: [bump-version, build-docker, build-electron]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Download macOS binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v7
         with:
           name: macOS-build
           path: release-artifacts
 
       - name: Download Linux binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v7
         with:
           name: linux-build
           path: release-artifacts
