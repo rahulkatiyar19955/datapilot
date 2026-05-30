@@ -183,6 +183,19 @@ class DockerOrchestrator {
   }
 
   /**
+   * Resolves the correct image tag for a DataPilot service image.
+   * If packaged, tags with the app version (e.g. "1.2.3").
+   * If unpackaged (dev mode), defaults to keeping the tag as defined (typically "latest").
+   */
+  private resolveImageTag(imageName: string): string {
+    if (app.isPackaged) {
+      const baseImage = imageName.split(":")[0];
+      return `${baseImage}:${app.getVersion()}`;
+    }
+    return imageName;
+  }
+
+  /**
    * Ensures required images exist, pulling or building them if missing in parallel.
    */
   public async ensureImages(): Promise<void> {
@@ -194,8 +207,9 @@ class DockerOrchestrator {
     for (const [serviceName, service] of Object.entries<any>(
       composeData.services,
     )) {
-      const imageTag = service.image;
-      if (!imageTag) continue;
+      const rawImageTag = service.image;
+      if (!rawImageTag) continue;
+      const imageTag = this.resolveImageTag(rawImageTag);
 
       if (existingTags.includes(imageTag)) {
         console.log(`Image ${imageTag} is already present.`);
@@ -493,7 +507,7 @@ class DockerOrchestrator {
         step: "Starting MCAP Parser service…",
       });
       await this.startContainer("mcap-parser", {
-        Image: "datapilot/mcap-parser:local",
+        Image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcap-parser:latest"),
         Env: ["DATAPILOT_HOST_MOUNT=/host"],
         HostConfig: {
           Binds: [`${userHome}:/host:ro`],
@@ -539,7 +553,7 @@ class DockerOrchestrator {
       }
 
       await this.startContainer("backend", {
-        Image: "datapilot/backend:local",
+        Image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-backend:latest"),
         Env: backendEnv,
         HostConfig: {
           PortBindings: {
@@ -585,31 +599,31 @@ class DockerOrchestrator {
       const workers = [
         {
           name: "rosbag-reader",
-          image: "datapilot/mcp-rosbag-reader:local",
+          image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-rosbag-reader:latest"),
           binds: [`${userHome}:/host:ro`],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
           name: "trajectory-analyzer",
-          image: "datapilot/mcp-trajectory-analyzer:local",
+          image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-trajectory-analyzer:latest"),
           binds: [`${userHome}:/host:ro`],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
           name: "planner-failure-inspector",
-          image: "datapilot/mcp-planner-failure-inspector:local",
+          image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-planner-failure-inspector:latest"),
           binds: [],
           env: [...neo4jEnv],
         },
         {
           name: "anomaly-detector",
-          image: "datapilot/mcp-anomaly-detector:local",
+          image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-anomaly-detector:latest"),
           binds: [`${userHome}:/host:ro`],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
           name: "report-composer",
-          image: "datapilot/mcp-report-composer:local",
+          image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-report-composer:latest"),
           binds: [],
           env: [...neo4jEnv],
         },

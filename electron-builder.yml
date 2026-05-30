@@ -19,22 +19,6 @@ extraResources:
   # service definitions. Placed at process.resourcesPath/docker-compose.yml.
   - from: docker-compose.yml
     to: docker-compose.yml
-  # Build contexts for the locally-built images. Compose `build.context` paths
-  # are resolved relative to docker-compose.yml's location, so backend/ and
-  # mcp_workers/ must sit next to it in the packaged resources directory.
-  - from: backend
-    to: backend
-    filter:
-      - "**/*"
-      - "!**/__pycache__/**"
-      - "!**/.venv/**"
-      - "!**/*.pyc"
-  - from: mcp_workers
-    to: mcp_workers
-    filter:
-      - "**/*"
-      - "!**/__pycache__/**"
-      - "!**/*.pyc"
 
 asar: true
 
@@ -43,10 +27,11 @@ mac:
   target:
     - target: dmg
       arch:
-        - arm64
-        - x64
-  hardenedRuntime: false
+        - universal
+  hardenedRuntime: true
   gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
 
 win:
   target:
