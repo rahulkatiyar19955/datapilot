@@ -15,6 +15,7 @@ class DockerOrchestrator {
   private socketPath: string;
   private status: DockerStatus = { state: "pending" };
   private activeContainers: string[] = [];
+  private statusCallbacks: ((status: DockerStatus) => void)[] = [];
 
   constructor() {
     this.socketPath =
@@ -83,11 +84,22 @@ class DockerOrchestrator {
     return this.status;
   }
 
+  public onStatusChange(callback: (status: DockerStatus) => void) {
+    this.statusCallbacks.push(callback);
+    return () => {
+      this.statusCallbacks = this.statusCallbacks.filter((cb) => cb !== callback);
+    };
+  }
+
   private setStatus(status: DockerStatus) {
     this.status = status;
     // Emit status change to all renderer windows
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("docker:status-changed", status);
+    }
+    // Notify local main process listeners
+    for (const cb of this.statusCallbacks) {
+      cb(status);
     }
   }
 

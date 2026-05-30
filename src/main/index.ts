@@ -27,12 +27,32 @@ if (!gotLock) {
 
 let mainWindow: BrowserWindow | null = null;
 
+function transitionToFullSize(win: BrowserWindow) {
+  const targetWidth = 1480;
+  const targetHeight = 940;
+
+  // Enable resizability and set minimum bounds for the main app layout
+  win.setResizable(true);
+  win.setMinimumSize(1120, 720);
+
+  const [width, height] = win.getSize();
+  const [x, y] = win.getPosition();
+
+  // Keep window centered relative to its current screen position
+  const newX = Math.round(x + (width - targetWidth) / 2);
+  const newY = Math.round(y + (height - targetHeight) / 2);
+
+  // Instantly update bounds (centered and resized)
+  win.setBounds({ x: newX, y: newY, width: targetWidth, height: targetHeight });
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1480,
-    height: 940,
-    minWidth: 1120,
-    minHeight: 720,
+    width: 580,
+    height: 300,
+    minWidth: 580,
+    minHeight: 300,
+    resizable: false, // Start locked during setup
     icon: join(__dirname, "../../build/icon.png"),
     show: false,
     backgroundColor: "#15171b", // Match --bg-0
@@ -100,6 +120,19 @@ app.on("before-quit", (e) => {
 app.whenReady().then(() => {
   registerIpcHandlers();
   createWindow();
+
+  // Listen for docker status ready to expand the window
+  const unsubscribe = dockerOrchestrator.onStatusChange((status) => {
+    if (status.state === "ready" && mainWindow) {
+      transitionToFullSize(mainWindow);
+      unsubscribe();
+    }
+  });
+
+  if (dockerOrchestrator.getStatus().state === "ready" && mainWindow) {
+    transitionToFullSize(mainWindow);
+    unsubscribe();
+  }
 
   // Spin up Docker containers in the background on startup
   void dockerOrchestrator.ensureStackUp();
