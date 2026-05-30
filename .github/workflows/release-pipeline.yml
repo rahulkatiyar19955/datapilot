@@ -64,6 +64,7 @@ jobs:
     uses: ./.github/workflows/docker-publish.yml
     with:
       ref: ${{ needs.bump-version.outputs.new_tag }}
+      push_images: true
     secrets: inherit
 
   build-electron:
