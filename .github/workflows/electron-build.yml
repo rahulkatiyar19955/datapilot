@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'The git ref to checkout'
+        required: false
+        type: string
 
 jobs:
   build-electron:
@@ -16,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -57,6 +65,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6

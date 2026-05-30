@@ -1,0 +1,101 @@
+name: Release Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  bump-version:
+    name: Bump Version and Push Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Bump Version
+        id: bump
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Avoid detached HEAD
+          git checkout main
+          
+          # Bump version (this updates package.json, commits, and creates a tag)
+          pnpm version ${{ inputs.version_type }} -m "Bump version to %s"
+          
+          NEW_TAG=$(git describe --tags --abbrev=0)
+          echo "new_tag=${NEW_TAG}" >> $GITHUB_OUTPUT
+          
+          # Push commit and tags to main
+          git push origin main
+          git push origin --tags
+
+  build-docker:
+    name: Build Docker
+    needs: bump-version
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      ref: ${{ needs.bump-version.outputs.new_tag }}
+    secrets: inherit
+
+  build-electron:
+    name: Build Electron
+    needs: bump-version
+    uses: ./.github/workflows/electron-build.yml
+    with:
+      ref: ${{ needs.bump-version.outputs.new_tag }}
+    secrets: inherit
+
+  create-release:
+    name: Create Draft Release
+    needs: [bump-version, build-electron]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS binary
+        uses: actions/download-artifact@v8
+        with:
+          name: macOS-build
+          path: release-artifacts
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-build
+          path: release-artifacts
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.bump-version.outputs.new_tag }}
+          name: Release ${{ needs.bump-version.outputs.new_tag }}
+          draft: true
+          files: |
+            release-artifacts/*.dmg
+            release-artifacts/*.AppImage

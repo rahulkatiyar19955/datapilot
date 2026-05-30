@@ -21,6 +21,12 @@ on:
     tags: ["v*"]
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: 'The git ref to checkout'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -77,6 +83,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       # QEMU is required for cross-platform (arm64) builds on GitHub's amd64 runners.
       - name: Set up QEMU
