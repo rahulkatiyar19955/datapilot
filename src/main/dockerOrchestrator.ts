@@ -97,9 +97,13 @@ class DockerOrchestrator {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send("docker:status-changed", status);
     }
-    // Notify local main process listeners
-    for (const cb of this.statusCallbacks) {
-      cb(status);
+    // Notify local main process listeners (copy array to guard against mid-iteration unsubscribes)
+    for (const cb of [...this.statusCallbacks]) {
+      try {
+        cb(status);
+      } catch (err) {
+        console.error("Error in Docker status change callback:", err);
+      }
     }
   }
 
@@ -201,7 +205,8 @@ class DockerOrchestrator {
    */
   private resolveImageTag(imageName: string): string {
     if (app.isPackaged && imageName.includes("datapilot")) {
-      const baseImage = imageName.split(":")[0];
+      const lastColon = imageName.lastIndexOf(":");
+      const baseImage = lastColon !== -1 ? imageName.slice(0, lastColon) : imageName;
       return `${baseImage}:${app.getVersion()}`;
     }
     return imageName;

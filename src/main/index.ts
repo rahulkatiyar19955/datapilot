@@ -123,14 +123,18 @@ app.whenReady().then(() => {
 
   // Listen for docker status ready to expand the window
   const unsubscribe = dockerOrchestrator.onStatusChange((status) => {
-    if (status.state === "ready" && mainWindow) {
-      transitionToFullSize(mainWindow);
+    if (status.state === "ready") {
+      if (mainWindow) {
+        transitionToFullSize(mainWindow);
+      }
       unsubscribe();
     }
   });
 
-  if (dockerOrchestrator.getStatus().state === "ready" && mainWindow) {
-    transitionToFullSize(mainWindow);
+  if (dockerOrchestrator.getStatus().state === "ready") {
+    if (mainWindow) {
+      transitionToFullSize(mainWindow);
+    }
     unsubscribe();
   }
 
