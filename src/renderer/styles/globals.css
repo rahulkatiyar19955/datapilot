@@ -858,6 +858,15 @@ button.pill:disabled {
   border: 2px solid transparent;
 }
 
+/* Scrollable but with no visible scrollbar (keeps wheel/drag scrolling). */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chromium / WebKit */
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }

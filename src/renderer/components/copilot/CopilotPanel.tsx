@@ -563,7 +563,7 @@ export function CopilotPanel(): JSX.Element {
       {/* Message list */}
       <div
         ref={scrollRef}
-        className="flex1"
+        className="flex1 no-scrollbar"
         style={{ overflowY: "auto", padding: "8px 0" }}
       >
         {messages.length === 0 && status !== "idle" && (
