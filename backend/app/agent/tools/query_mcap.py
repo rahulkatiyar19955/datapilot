@@ -97,6 +97,19 @@ _WRITE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# DuckDB ships generic file-reading table functions (read_csv, read_parquet, …)
+# that would let a query exfiltrate arbitrary files from the container (LFI).
+# Only the mcap_* / rosout table functions are legitimate here, so block the
+# generic readers as defense-in-depth. `*_auto` variants are caught by allowing
+# an optional trailing word so the word boundary doesn't let `read_csv_auto`
+# slip through.
+_BLOCKED_FUNCTIONS_PATTERN = re.compile(
+    r"\b(read_csv|read_csv_auto|read_json|read_json_auto|read_ndjson|read_ndjson_auto"
+    r"|read_parquet|parquet_scan|parquet_metadata|read_text|read_blob|scan_csv|glob"
+    r"|sniff_csv|read_xlsx|delta_scan|iceberg_scan)\b",
+    re.IGNORECASE,
+)
+
 _MCAP_TOKEN = "{mcap_path}"
 
 
@@ -149,13 +162,20 @@ def _lookup_filepath(session_id: str) -> str | None:
 
 
 def _serialize_cell(value: Any) -> Any:
-    """Make a DuckDB cell JSON-serializable for the tool envelope."""
+    """Make a DuckDB cell JSON-serializable for the tool envelope.
+
+    DuckDB STRUCT/MAP/LIST values come back as dicts/lists/tuples that may nest
+    non-primitive types (datetime, bytes); recurse so the whole tree is safe to
+    json.dumps downstream.
+    """
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, (bytes, bytearray, memoryview)):
         return f"<{len(bytes(value))} bytes>"
-    if isinstance(value, (list, dict)):
-        return value
+    if isinstance(value, (list, tuple)):
+        return [_serialize_cell(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _serialize_cell(v) for k, v in value.items()}
     return str(value)
 
 
@@ -167,11 +187,12 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
     if not sql:
         return _error("missing_sql", "sql is required", False)
 
-    if _WRITE_PATTERN.search(sql):
+    if _WRITE_PATTERN.search(sql) or _BLOCKED_FUNCTIONS_PATTERN.search(sql):
         return _error(
             "write_blocked",
-            "Only read-only SELECT queries are allowed. Remove write/DDL/ATTACH/COPY/"
-            "INSTALL/LOAD/PRAGMA/SET statements.",
+            "Only read-only SELECT queries over the MCAP file are allowed. Remove write/DDL/"
+            "ATTACH/COPY/INSTALL/LOAD/PRAGMA/SET statements and generic file-reading functions "
+            "(read_csv, read_parquet, read_json, glob, …) — use the mcap_*/rosout table functions.",
             False,
         )
 
@@ -205,10 +226,14 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
             False,
         )
 
-    # Substitute the path token (single-quote-escaped for the SQL literal) and
-    # append a LIMIT when the query doesn't already constrain its output.
-    safe_path = resolved.replace("'", "''")
-    final_sql = sql.replace(_MCAP_TOKEN, safe_path).rstrip().rstrip(";")
+    # Substitute the path token with a properly single-quoted SQL string literal,
+    # tolerating whichever quoting style the caller used around the token
+    # ('{mcap_path}', "{mcap_path}", or a bare {mcap_path}). Embedded single
+    # quotes in the path are escaped by doubling.
+    safe_literal = "'" + resolved.replace("'", "''") + "'"
+    final_sql = sql.replace("'" + _MCAP_TOKEN + "'", safe_literal)
+    final_sql = final_sql.replace('"' + _MCAP_TOKEN + '"', safe_literal)
+    final_sql = final_sql.replace(_MCAP_TOKEN, safe_literal).rstrip().rstrip(";")
     if not re.search(r"\bLIMIT\b", final_sql, re.IGNORECASE):
         final_sql = f"{final_sql}\nLIMIT {limit}"
 
@@ -227,13 +252,18 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
             con.load_extension("json")
             cursor = con.execute(final_sql)
             columns = [d[0] for d in cursor.description] if cursor.description else []
+            # fetchmany(limit) caps the result at the driver level so a query that
+            # slips past the textual LIMIT check (subquery, literal "LIMIT", …)
+            # can't pull an unbounded set into memory and OOM the worker.
             rows = [
                 {col: _serialize_cell(val) for col, val in zip(columns, record)}
-                for record in cursor.fetchall()
+                for record in cursor.fetchmany(limit)
             ]
         finally:
             con.close()
     except Exception as exc:
-        return _error("duckdb_failed", str(exc), True)
+        # Execution errors (syntax, missing column, bad cast) are deterministic —
+        # retrying the identical query just burns tokens, so mark non-retryable.
+        return _error("duckdb_failed", str(exc), False)
 
     return {"ok": True, "result": rows}

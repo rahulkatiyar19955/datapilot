@@ -52,6 +52,24 @@ def test_write_blocked(session_id):
     assert res["error"]["code"] == "write_blocked"
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM read_csv('/etc/passwd')",
+        "SELECT * FROM read_csv_auto('/etc/passwd')",
+        "SELECT * FROM read_parquet('/secret.parquet')",
+        "SELECT * FROM read_json('{mcap_path}')",
+        "SELECT * FROM glob('/**')",
+        "SELECT content FROM read_text('/proc/self/environ')",
+    ],
+)
+def test_file_read_functions_blocked(session_id, sql):
+    """DuckDB's generic file readers must be rejected (LFI / arbitrary file read)."""
+    res = query_mcap.run({"session_id": session_id, "sql": sql})
+    assert res["ok"] is False
+    assert res["error"]["code"] == "write_blocked"
+
+
 def test_missing_path_token(session_id):
     res = query_mcap.run({"session_id": session_id, "sql": "SELECT 1"})
     assert res["ok"] is False
