@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type JSX } from "react";
+import { useState, useEffect, useCallback, useRef, type JSX } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { Input } from "@renderer/components/ui/Input";
 import { useSessionStore } from "@renderer/stores/session";
@@ -31,7 +31,6 @@ function countBySev(logs: LogItem[], sev: SevFilter): number {
 export function LogsView(): JSX.Element {
   const sessionId = useSessionStore((s) => s.sessionId);
   const initialLogs = useSessionStore((s) => s.logs);
-  const setTabData = useSessionStore((s) => s.setTabData);
 
   const [active, setActive] = useState<Set<SevFilter>>(new Set(ALL_SEVERITIES));
   const [search, setSearch] = useState("");
@@ -40,13 +39,31 @@ export function LogsView(): JSX.Element {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(initialLogs.length === PAGE_SIZE);
 
-  // Whenever the base logs change (new session), reset state
+  // Skip the first debounced fetch per session: useSession already loaded the
+  // first page into the store, so there's nothing to re-fetch until the user
+  // changes the query or filters.
+  const didInit = useRef(false);
+  const prevSessionId = useRef<string | null>(sessionId);
+
+  // Reset filters/search only when the session actually changes (not on first
+  // mount, and not when the store's logs array reference churns). Resetting
+  // `active` to a fresh Set on every store-logs change would retrigger the
+  // debounced-fetch effect and spin an infinite refetch loop.
+  useEffect(() => {
+    if (prevSessionId.current === sessionId) return;
+    prevSessionId.current = sessionId;
+    setSearch("");
+    setActive(new Set(ALL_SEVERITIES));
+    didInit.current = false;
+  }, [sessionId]);
+
+  // Sync displayed rows with the store when the base logs change (e.g. when
+  // ingestion finishes and useSession populates them). Touches data only —
+  // never the filter state.
   useEffect(() => {
     setDisplayedLogs(initialLogs);
     setOffset(initialLogs.length);
     setHasMore(initialLogs.length === PAGE_SIZE);
-    setSearch("");
-    setActive(new Set(ALL_SEVERITIES));
   }, [initialLogs]);
 
   const toggleSev = (sev: SevFilter) => {
@@ -81,20 +98,24 @@ export function LogsView(): JSX.Element {
           }
           setOffset(newOffset + results.length);
           setHasMore(results.length === PAGE_SIZE);
-          // Keep the session store in sync for first-page fetches (no query)
-          if (newOffset === 0 && !q) setTabData("logs", results);
         })
         .catch(() => {
           /* keep previous results on error */
         })
         .finally(() => setLoading(false));
     },
-    [sessionId, setTabData],
+    [sessionId],
   );
 
-  // Debounce search + severity changes
+  // Debounce search + severity changes. Skip the very first run per session so
+  // we render the store's already-loaded first page instead of immediately
+  // re-fetching it (which previously fed an infinite refresh loop).
   useEffect(() => {
     if (!sessionId) return;
+    if (!didInit.current) {
+      didInit.current = true;
+      return;
+    }
     const timer = setTimeout(() => {
       fetchLogs(search, active, 0);
     }, 350);
