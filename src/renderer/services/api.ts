@@ -96,6 +96,7 @@ interface RawKGraph {
     group: string;
     x?: number;
     y?: number;
+    meta?: Record<string, unknown>;
   }>;
   edges: Array<string[] | { source: string; target: string }>;
 }
@@ -186,13 +187,15 @@ export async function getLogs(
 export async function getKGraph(id: string): Promise<KGraphData> {
   const raw = await get<RawKGraph>(`/api/sessions/${id}/kgraph`);
 
-  // Layout positions: if not provided by backend, spread nodes in a grid.
-  const nodes: KGraphNode[] = raw.nodes.map((n, i) => ({
+  // Pass node metadata through; positions are seeds only — the KGraphView force
+  // layout computes the final coordinates, so we don't impose a grid here.
+  const nodes: KGraphNode[] = raw.nodes.map((n) => ({
     id: n.id,
     label: n.label,
     group: n.group as KGraphNode["group"],
-    x: n.x ?? 110 + (i % 3) * 220,
-    y: n.y ?? 70 + Math.floor(i / 3) * 130,
+    x: n.x,
+    y: n.y,
+    meta: n.meta,
   }));
 
   const edges: KGraphEdge[] = raw.edges.map((e) => {

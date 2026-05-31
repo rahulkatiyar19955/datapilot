@@ -49,12 +49,25 @@ export interface LogItem {
   text: string;
 }
 
+export type KGraphGroup =
+  | "session"
+  | "sensor"
+  | "topic"
+  | "fault"
+  | "state"
+  | "node"
+  | "outcome"
+  | "fact";
+
 export interface KGraphNode {
   id: string;
   label: string;
-  group: "sensor" | "fault" | "state" | "node" | "outcome";
-  x: number;
-  y: number;
+  group: KGraphGroup;
+  /** Optional seed position; the frontend force layout computes final coords. */
+  x?: number;
+  y?: number;
+  /** Per-node detail surfaced on hover (topic type, sensor type, Hz, fact text…). */
+  meta?: Record<string, unknown>;
 }
 
 export interface KGraphEdge {
