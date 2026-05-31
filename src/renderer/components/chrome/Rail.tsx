@@ -1,5 +1,6 @@
 import type { JSX, ReactNode } from "react";
 import { cn } from "@renderer/lib/utils";
+import logoUrl from "@renderer/assets/logo.png";
 
 interface RailProps {
   children: ReactNode;
@@ -20,7 +21,11 @@ interface RailProps {
 export function Rail({ children, logo, className }: RailProps): JSX.Element {
   return (
     <nav className={cn("rail", className)} aria-label="Primary navigation">
-      {logo ?? <div className="rail-logo">D</div>}
+      {logo ?? (
+        <div className="rail-logo rail-logo--img">
+          <img src={logoUrl} alt="DataPilot" draggable={false} />
+        </div>
+      )}
       {children}
     </nav>
   );

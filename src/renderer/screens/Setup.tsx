@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from "react";
 import type { DockerStatus } from "@shared/ipc";
 import { Icon } from "@renderer/components/Icon";
 import { Button } from "@renderer/components/ui";
+import logoUrl from "@renderer/assets/logo.png";
 
 interface SetupProps {
   status: DockerStatus;
@@ -40,7 +41,9 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
       <div className="setup-container">
         <div className="setup-card fade-in">
           <div className="setup-header">
-            <div className="setup-logo">D</div>
+            <div className="setup-logo setup-logo--img">
+              <img src={logoUrl} alt="DataPilot" draggable={false} />
+            </div>
             <div className="setup-title-group">
               <h1 className="setup-title">Environment setup</h1>
               <p className="setup-subtitle">Orchestrating stack dependencies</p>
@@ -283,7 +286,9 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
     <div className="setup-container">
       <div className="setup-card fade-in">
         <div className="setup-header">
-          <div className="setup-logo">D</div>
+          <div className="setup-logo setup-logo--img">
+            <img src={logoUrl} alt="DataPilot" draggable={false} />
+          </div>
           <div className="setup-title-group">
             <h1 className="setup-title">Environment setup</h1>
             <p className="setup-subtitle">
