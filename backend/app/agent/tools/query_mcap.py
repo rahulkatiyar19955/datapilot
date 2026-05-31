@@ -109,7 +109,7 @@ def _extension_path() -> str | None:
     """Locate the vendored mcap.duckdb_extension for the current platform.
 
     Layout: backend/app/vendor/mcap/<platform>/mcap.duckdb_extension where
-    <platform> is one of linux_amd64, linux_arm64, osx_arm64, osx_amd64.
+    <platform> is one of linux_amd64, linux_arm64, osx_arm64.
     """
     system = platform.system().lower()
     machine = platform.machine().lower()
