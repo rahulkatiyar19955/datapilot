@@ -1,4 +1,4 @@
-"""Replay Narrator — lightweight; Phase 5+ deepens with real TF/sensor playback."""
+"""Replay Narrator — FULL ReAct specialist; grounds narration in real payload values."""
 from __future__ import annotations
 
 from app.agent.specialists.base import PROMPTS_DIR, BaseSpecialist, SpecialistKind
@@ -6,7 +6,7 @@ from app.agent.specialists.base import PROMPTS_DIR, BaseSpecialist, SpecialistKi
 
 class ReplayNarratorSpecialist(BaseSpecialist):
     name = "ReplayNarrator"
-    kind = SpecialistKind.LIGHT
+    kind = SpecialistKind.FULL
     prompt_path = PROMPTS_DIR / "replay.md"
     worker_subset = ["rosbag_reader", "trajectory_analyzer"]
     output_schema = {
