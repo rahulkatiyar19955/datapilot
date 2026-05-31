@@ -41,6 +41,7 @@ function formatRelativeTime(dateStr?: string): string {
 
 export function CopilotPanel(): JSX.Element {
   const messages = useChatStore((s) => s.messages);
+  const streaming = useChatStore((s) => s.streaming);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setMessages = useChatStore((s) => s.setMessages);
   const {
@@ -155,12 +156,14 @@ export function CopilotPanel(): JSX.Element {
     }
   };
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages and on every streamed update.
+  // The store replaces the `messages` array on each updateLastMessage, so
+  // depending on `messages` (not just its length) follows token streaming too.
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length]);
+  }, [messages, streaming]);
 
   const modelLabel =
     (defaultModel || "").trim() || `${defaultProvider} default`;

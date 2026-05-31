@@ -1,4 +1,4 @@
-import { useState, type JSX, type KeyboardEvent } from "react";
+import { useState, useEffect, useRef, type JSX, type KeyboardEvent } from "react";
 import { Icon } from "@renderer/components/Icon";
 import { useChatStore } from "@renderer/stores/chat";
 import { useChat } from "@renderer/hooks/useChat";
@@ -7,6 +7,18 @@ export function CommandBar(): JSX.Element {
   const [input, setInput] = useState("");
   const streaming = useChatStore((s) => s.streaming);
   const { send, stop } = useChat();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const prevStreaming = useRef(streaming);
+
+  // Return focus to the input once the assistant finishes responding, so the
+  // user can keep typing without reaching for the mouse. The textarea is
+  // disabled while streaming, so focus has to be restored after it re-enables.
+  useEffect(() => {
+    if (prevStreaming.current && !streaming) {
+      textareaRef.current?.focus();
+    }
+    prevStreaming.current = streaming;
+  }, [streaming]);
 
   const handleSend = () => {
     const text = input.trim();
@@ -35,6 +47,7 @@ export function CommandBar(): JSX.Element {
         }}
       >
         <textarea
+          ref={textareaRef}
           placeholder="Ask anything about this run, or paste a topic name…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
