@@ -58,13 +58,16 @@ export function LogsView(): JSX.Element {
   }, [sessionId]);
 
   // Sync displayed rows with the store when the base logs change (e.g. when
-  // ingestion finishes and useSession populates them). Touches data only —
-  // never the filter state.
+  // ingestion finishes and useSession populates them). Only adopt the store's
+  // first page in the default view — never overwrite an active search/filter
+  // result (which is driven by the debounced backend fetch below).
   useEffect(() => {
+    const isDefaultFilter = active.size === ALL_SEVERITIES.length;
+    if (search || !isDefaultFilter) return;
     setDisplayedLogs(initialLogs);
     setOffset(initialLogs.length);
     setHasMore(initialLogs.length === PAGE_SIZE);
-  }, [initialLogs]);
+  }, [initialLogs, search, active]);
 
   const toggleSev = (sev: SevFilter) => {
     setActive((prev) => {
