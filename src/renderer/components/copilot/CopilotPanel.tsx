@@ -159,9 +159,14 @@ export function CopilotPanel(): JSX.Element {
   // Auto-scroll to bottom on new messages and on every streamed update.
   // The store replaces the `messages` array on each updateLastMessage, so
   // depending on `messages` (not just its length) follows token streaming too.
+  // Only stick to the bottom when the user is already near it — if they've
+  // scrolled up to read earlier messages, don't yank them back down.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages, streaming]);
 

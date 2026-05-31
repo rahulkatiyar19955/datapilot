@@ -286,7 +286,9 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
     <div className="setup-container">
       <div className="setup-card fade-in">
         <div className="setup-header">
-          <div className="setup-logo">D</div>
+          <div className="setup-logo setup-logo--img">
+            <img src={logoUrl} alt="DataPilot" draggable={false} />
+          </div>
           <div className="setup-title-group">
             <h1 className="setup-title">Environment setup</h1>
             <p className="setup-subtitle">
