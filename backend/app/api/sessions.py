@@ -127,6 +127,7 @@ async def run_ingestion(session_id: str, filepath: str):
                 anomalies=anomalies,
                 logs=logs,
                 causal_edges=edges,
+                topics=parsed.get("topics", []),
             )
 
             # 6. Save metadata caches to SQLite Record

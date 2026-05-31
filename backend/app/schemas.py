@@ -47,9 +47,10 @@ class LogItem(BaseModel):
 class KGraphNode(BaseModel):
     id: str
     label: str
-    group: str  # 'sensor', 'fault', 'state', 'node', 'outcome'
+    group: str  # 'sensor', 'topic', 'fault', 'state', 'node', 'outcome', 'fact'
     x: float
     y: float
+    meta: Dict[str, Any] = {}
 
 class KGraphResponse(BaseModel):
     nodes: List[KGraphNode]
