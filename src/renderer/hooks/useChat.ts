@@ -41,6 +41,7 @@ export function useChat(): UseChatReturn {
   const { addMessage, updateLastMessage, updatePlanStep, setStreaming } =
     useChatStore();
   const sessionId = useSessionStore((s) => s.sessionId);
+  const setTabData = useSessionStore((s) => s.setTabData);
   const defaultProvider = useSettingsStore((s) => s.defaultProvider);
   const defaultModel = useSettingsStore((s) => s.defaultModel);
   const abortRef = useRef<AbortController | null>(null);
@@ -144,6 +145,17 @@ export function useChat(): UseChatReturn {
           }));
 
           setStreaming(false);
+        } else if (event === "kgraph") {
+          // The turn distilled new facts into the knowledge graph — refetch it
+          // so they appear without reloading the session.
+          if (sessionId) {
+            api
+              .getKGraph(sessionId)
+              .then((g) => setTabData("kgraph", g))
+              .catch((err) =>
+                console.error("knowledge graph refresh failed:", err),
+              );
+          }
         } else if (event === "error") {
           const errData = data as ErrorEventData;
           addMessage({
