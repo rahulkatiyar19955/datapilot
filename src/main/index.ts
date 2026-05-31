@@ -28,7 +28,7 @@ if (!gotLock) {
 let mainWindow: BrowserWindow | null = null;
 
 function transitionToFullSize(win: BrowserWindow) {
-  const targetWidth = 1480;
+  const targetWidth = 1440;
   const targetHeight = 940;
 
   // Enable resizability and set minimum bounds for the main app layout
