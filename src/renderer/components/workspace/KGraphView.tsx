@@ -24,6 +24,7 @@ import * as api from "@renderer/services/api";
 import type { KGraphGroup, KGraphNode } from "@shared/types";
 
 const GROUP_COLOR: Record<KGraphGroup, string> = {
+  session: "var(--color-text-0)",
   sensor: "oklch(0.70 0.10 200)",
   topic: "oklch(0.72 0.12 160)",
   fault: "var(--color-danger)",
@@ -34,6 +35,7 @@ const GROUP_COLOR: Record<KGraphGroup, string> = {
 };
 
 const GROUP_LABELS: Array<[KGraphGroup, string]> = [
+  ["session", "Session"],
   ["sensor", "Sensors"],
   ["topic", "Topics"],
   ["node", "Nodes"],
@@ -42,7 +44,11 @@ const GROUP_LABELS: Array<[KGraphGroup, string]> = [
   ["fact", "Facts"],
 ];
 
-const RADIUS: Partial<Record<KGraphGroup, number>> = { fact: 9, outcome: 8 };
+const RADIUS: Partial<Record<KGraphGroup, number>> = {
+  session: 14,
+  fact: 9,
+  outcome: 8,
+};
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 3;
 
@@ -71,6 +77,10 @@ function metaLines(node: SimNode): string[] {
       lines.push(`${label}: ${v}`);
   };
   switch (node.group) {
+    case "session":
+      push("Session", m.label ?? node.label);
+      push("ID", m.sessionId);
+      break;
     case "topic":
       push("Type", m.type);
       if (m.hz != null) push("Rate", `${Number(m.hz).toFixed(1)} Hz`);
@@ -140,6 +150,7 @@ export function KGraphView(): JSX.Element {
     // Preserve positions of nodes already laid out (so new facts don't reshuffle).
     const nodes: SimNode[] = kgraph.nodes.map((n: KGraphNode) => {
       const prev = posRef.current.get(n.id);
+      const isRoot = n.group === "session";
       return {
         id: n.id,
         label: n.label,
@@ -147,6 +158,9 @@ export function KGraphView(): JSX.Element {
         meta: n.meta,
         x: prev?.x ?? n.x ?? w / 2 + (Math.random() - 0.5) * 120,
         y: prev?.y ?? n.y ?? h / 2 + (Math.random() - 0.5) * 120,
+        // Pin the session hub to the centre so the graph radiates from it.
+        fx: isRoot ? w / 2 : undefined,
+        fy: isRoot ? h / 2 : undefined,
       };
     });
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -277,8 +291,14 @@ export function KGraphView(): JSX.Element {
   const resetView = () => {
     setView({ tx: 0, ty: 0, k: 1 });
     for (const n of nodesRef.current) {
-      n.fx = null;
-      n.fy = null;
+      if (n.group === "session") {
+        // Keep the hub pinned at the centre.
+        n.fx = size.w / 2;
+        n.fy = size.h / 2;
+      } else {
+        n.fx = null;
+        n.fy = null;
+      }
     }
     simRef.current?.alpha(0.8).restart();
   };

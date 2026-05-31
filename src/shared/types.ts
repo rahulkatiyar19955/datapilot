@@ -50,6 +50,7 @@ export interface LogItem {
 }
 
 export type KGraphGroup =
+  | "session"
   | "sensor"
   | "topic"
   | "fault"

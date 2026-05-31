@@ -21,7 +21,7 @@ from app.services.parser import ingestion_parser
 from app.services.embeddings import embedding_service
 from app.services.neo4j_client import neo4j_client
 from app.services.causal_rules import causal_rules_evaluator, log_time_to_seconds
-from app.services.kgraph_builder import build_kgraph
+from app.services.kgraph_builder import build_kgraph, attach_session_root
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,8 @@ async def run_ingestion(session_id: str, filepath: str):
                 logs=logs,
                 causal_edges=edges,
                 topics=parsed.get("topics", []),
+                session_id=session_id,
+                session_label=record.filename,
             )
 
             # 6. Save metadata caches to SQLite Record
@@ -409,6 +411,10 @@ async def get_kgraph(session_id: str, db: AsyncSession = Depends(get_db)):
                 base.setdefault("edges", []).append(e)
     except Exception:
         logger.exception("failed to merge conversation facts into kgraph")
+
+    # Anchor every node (incl. facts and any legacy cache without a root) to a
+    # single Session hub node so the graph is one connected component.
+    attach_session_root(base, session_id, record.filename)
 
     return KGraphResponse(**base)
 

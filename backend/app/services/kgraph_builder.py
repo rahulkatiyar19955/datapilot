@@ -23,12 +23,61 @@ _Y_START = 80
 _Y_STEP = 120
 
 
+def attach_session_root(
+    graph: dict[str, Any],
+    session_id: str | None,
+    label: str | None = None,
+) -> dict[str, Any]:
+    """Anchor every node to a single Session hub node (id == session_id).
+
+    Adds a `session`-group root node (if absent) and a direct edge from it to
+    every other node that isn't already linked to it, so the graph is one
+    connected component centred on the session. Idempotent — safe to call again
+    after merging in extra nodes (e.g. conversation facts).
+    """
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+    if not session_id or not nodes:
+        return graph
+
+    node_ids = {n["id"] for n in nodes}
+    if session_id not in node_ids:
+        nodes.insert(0, {
+            "id": session_id,
+            "label": (label or "session")[:30],
+            "group": "session",
+            "x": 400,
+            "y": 280,
+            "meta": {"sessionId": session_id, "label": label or ""},
+        })
+        node_ids.add(session_id)
+
+    connected: set[str] = set()
+    for e in edges:
+        if e[0] == session_id:
+            connected.add(e[1])
+        elif e[1] == session_id:
+            connected.add(e[0])
+
+    for n in nodes:
+        nid = n["id"]
+        if nid != session_id and nid not in connected:
+            edges.append([session_id, nid])
+            connected.add(nid)
+
+    graph["nodes"] = nodes
+    graph["edges"] = edges
+    return graph
+
+
 def build_kgraph(
     sensors: list[dict[str, Any]],
     anomalies: list[dict[str, Any]],
     logs: list[dict[str, Any]],
     causal_edges: list[dict[str, Any]],
     topics: list[dict[str, Any]] | None = None,
+    session_id: str | None = None,
+    session_label: str | None = None,
 ) -> dict[str, Any]:
     """
     Returns {"nodes": [...], "edges": [...]} ready to be JSON-serialised into
@@ -171,4 +220,4 @@ def build_kgraph(
                     _add_edge(snode_id, tgt)
                     break
 
-    return {"nodes": nodes, "edges": edges}
+    return attach_session_root({"nodes": nodes, "edges": edges}, session_id, session_label)

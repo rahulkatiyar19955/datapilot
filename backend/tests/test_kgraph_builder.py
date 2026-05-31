@@ -1,7 +1,7 @@
 """Tests for build_kgraph — node enrichment (topics/sensors meta) and edges."""
 from __future__ import annotations
 
-from app.services.kgraph_builder import build_kgraph
+from app.services.kgraph_builder import attach_session_root, build_kgraph
 
 
 SENSORS = [
@@ -60,3 +60,28 @@ def test_fault_and_outcome_nodes_have_severity():
     groups = {n["group"]: n for n in g["nodes"]}
     assert groups["fault"]["meta"]["kind"] == "dropout"
     assert groups["outcome"]["meta"]["severity"] == "critical"
+
+
+def test_session_root_anchors_every_node():
+    g = build_kgraph(
+        sensors=SENSORS, anomalies=ANOMALIES, logs=LOGS, causal_edges=[], topics=TOPICS,
+        session_id="sess-1", session_label="run.mcap",
+    )
+    root = next(n for n in g["nodes"] if n["group"] == "session")
+    assert root["id"] == "sess-1"
+    # Every non-session node has a direct edge from the session root.
+    connected = {e[1] for e in g["edges"] if e[0] == "sess-1"}
+    connected |= {e[0] for e in g["edges"] if e[1] == "sess-1"}
+    for n in g["nodes"]:
+        if n["id"] != "sess-1":
+            assert n["id"] in connected
+
+
+def test_attach_session_root_is_idempotent_and_skips_empty():
+    assert attach_session_root({"nodes": [], "edges": []}, "sess-1") == {"nodes": [], "edges": []}
+    g = {"nodes": [{"id": "topic_/odom", "label": "/odom", "group": "topic"}], "edges": []}
+    attach_session_root(g, "sess-1", "run.mcap")
+    edge_count = len(g["edges"])
+    attach_session_root(g, "sess-1", "run.mcap")  # second call adds nothing
+    assert len(g["edges"]) == edge_count
+    assert sum(1 for n in g["nodes"] if n["group"] == "session") == 1
