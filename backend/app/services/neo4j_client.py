@@ -291,4 +291,114 @@ class Neo4jClient:
             if concurrent_list:
                 session.run(query_concurrent, {"edges_list": concurrent_list})
 
+    def write_facts(self, session_id: str, facts: list[dict], turn_index: int = 0):
+        """Persist conversation-extracted facts as (:Fact) nodes linked to the
+        Session, plus MENTIONS edges to matching Topic/Sensor nodes and CITES
+        edges to any cited Logs. Dedup is by (session_id, text)."""
+        if not facts:
+            return
+        import uuid
+        from datetime import datetime, timezone
+
+        prepared = []
+        for f in facts:
+            text = (f.get("text") or "").strip()
+            if not text:
+                continue
+            prepared.append({
+                "id": f.get("id") or f"fact_{uuid.uuid4().hex[:10]}",
+                "text": text,
+                "category": f.get("category") or "general",
+                "severity": f.get("severity") or "info",
+                "entities": f.get("entities") or [],
+                "log_ids": f.get("log_ids") or [],
+            })
+        if not prepared:
+            return
+
+        created_at = datetime.now(timezone.utc).isoformat()
+
+        create_q = """
+        MATCH (s:Session {id: $session_id})
+        UNWIND $facts AS fact
+        MERGE (f:Fact {session_id: $session_id, text: fact.text})
+        ON CREATE SET f.id = fact.id, f.category = fact.category,
+            f.severity = fact.severity, f.entities = fact.entities,
+            f.source = 'conversation', f.turn_index = $turn_index,
+            f.created_at = $created_at
+        ON MATCH SET f.severity = fact.severity, f.turn_index = $turn_index
+        MERGE (s)-[:HAS_FACT]->(f)
+        """
+        mentions_q = """
+        MATCH (s:Session {id: $session_id})
+        UNWIND $facts AS fact
+        MATCH (f:Fact {session_id: $session_id, text: fact.text})
+        UNWIND fact.entities AS ent
+        OPTIONAL MATCH (s)-[:HAS_TOPIC]->(t:Topic {name: ent})
+        FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END |
+            MERGE (f)-[:MENTIONS]->(t))
+        WITH s, f, ent
+        OPTIONAL MATCH (s)-[:HAS_SENSOR]->(sen:Sensor)
+        WHERE sen.name = ent OR sen.topic = ent
+        FOREACH (_ IN CASE WHEN sen IS NULL THEN [] ELSE [1] END |
+            MERGE (f)-[:MENTIONS]->(sen))
+        """
+        cites_q = """
+        UNWIND $facts AS fact
+        MATCH (f:Fact {session_id: $session_id, text: fact.text})
+        UNWIND fact.log_ids AS lid
+        MATCH (l:Log {id: lid})
+        MERGE (f)-[:CITES]->(l)
+        """
+        params = {"session_id": session_id, "facts": prepared, "turn_index": turn_index, "created_at": created_at}
+        with self.driver.session() as session:
+            session.run(create_q, params)
+            session.run(mentions_q, params)
+            session.run(cites_q, params)
+
+    def get_facts_graph(self, session_id: str) -> dict:
+        """Return {nodes, edges} for this session's Fact nodes, with candidate
+        edges to the structural kgraph node ids (topic_/sensor_/node_). The
+        caller filters edges against the structural graph's actual node ids."""
+        query = """
+        MATCH (s:Session {id: $session_id})-[:HAS_FACT]->(f:Fact)
+        OPTIONAL MATCH (f)-[:MENTIONS]->(t:Topic)
+        OPTIONAL MATCH (f)-[:MENTIONS]->(sen:Sensor)
+        OPTIONAL MATCH (f)-[:CITES]->(l:Log)
+        RETURN f.id AS id, f.text AS text, f.category AS category,
+               f.severity AS severity,
+               collect(DISTINCT t.name) AS topics,
+               collect(DISTINCT sen.name) AS sensors,
+               collect(DISTINCT l.node) AS log_nodes
+        ORDER BY f.created_at
+        """
+        rows = self.run_query(query, {"session_id": session_id})
+        nodes: list[dict] = []
+        edges: list[list[str]] = []
+        for i, r in enumerate(rows):
+            fid = r.get("id") or f"fact_{i}"
+            text = r.get("text") or ""
+            nodes.append({
+                "id": fid,
+                "label": text[:30],
+                "group": "fact",
+                "x": 700,
+                "y": 80 + i * 80,
+                "meta": {
+                    "text": text,
+                    "category": r.get("category") or "general",
+                    "severity": r.get("severity") or "info",
+                },
+            })
+            for name in r.get("topics") or []:
+                if name:
+                    edges.append([fid, f"topic_{name}"])
+            for name in r.get("sensors") or []:
+                if name:
+                    edges.append([fid, f"sensor_{name}"])
+            for node_name in r.get("log_nodes") or []:
+                if node_name:
+                    edges.append([fid, f"node_{node_name}"])
+        return {"nodes": nodes, "edges": edges}
+
 neo4j_client = Neo4jClient()

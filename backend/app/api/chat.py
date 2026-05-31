@@ -28,8 +28,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.agent.checkpointer import get_checkpointer
+from app.agent.fact_extractor import extract_facts
 from app.agent.graph import build_graph, initial_state
 from app.db_sqlite import get_db
+from app.services.neo4j_client import neo4j_client
 from app.llm.router import get_router
 from app.models import ChatMessageRecord, SessionCostRecord, SessionRecord
 from app.schemas import ChatRequest
@@ -288,6 +290,31 @@ async def chat(
             await _persist_turn(db, session_id, payload.message, final_envelope, turn_started)
         except Exception:
             logger.exception("chat: persistence failed")
+
+        # Distil durable facts from this turn into the knowledge graph (Neo4j).
+        # Best-effort, and only after the answer has streamed, so it never adds
+        # latency to the response or breaks the turn.
+        try:
+            facts = await extract_facts(
+                router_instance.for_supervisor(),
+                session_summary=session_summary,
+                user_msg=payload.message,
+                envelope=final_envelope,
+            )
+            if facts:
+                cited = sorted({
+                    lid
+                    for f in (final_envelope.get("findings") or [])
+                    if isinstance(f, dict)
+                    for lid in (f.get("log_ids") or [])
+                })
+                for f in facts:
+                    f["log_ids"] = cited
+                neo4j_client.write_facts(session_id, facts)
+                # Signal the client to refetch the knowledge graph.
+                yield _format_sse("kgraph", {"facts": len(facts)})
+        except Exception:
+            logger.exception("chat: fact extraction failed")
 
     return EventSourceResponse(event_stream())
 

@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 import json
+import logging
 import re
 import uuid
 from typing import List, Optional
@@ -21,6 +22,8 @@ from app.services.embeddings import embedding_service
 from app.services.neo4j_client import neo4j_client
 from app.services.causal_rules import causal_rules_evaluator, log_time_to_seconds
 from app.services.kgraph_builder import build_kgraph
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -389,7 +392,25 @@ async def get_kgraph(session_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Session not found")
     if record.status != "ready":
         return KGraphResponse(nodes=[], edges=[])
-    return KGraphResponse(**json.loads(record.kgraph_json or '{"nodes": [], "edges": []}'))
+    base = json.loads(record.kgraph_json or '{"nodes": [], "edges": []}')
+
+    # Merge in conversation facts persisted live in Neo4j. Best-effort: a Neo4j
+    # hiccup falls back to the cached structural graph.
+    try:
+        facts = neo4j_client.get_facts_graph(session_id)
+        node_ids = {n["id"] for n in base.get("nodes", [])}
+        for fn in facts.get("nodes", []):
+            if fn["id"] not in node_ids:
+                base.setdefault("nodes", []).append(fn)
+                node_ids.add(fn["id"])
+        # Keep only fact edges that point at an existing structural/fact node.
+        for e in facts.get("edges", []):
+            if e[0] in node_ids and e[1] in node_ids:
+                base.setdefault("edges", []).append(e)
+    except Exception:
+        logger.exception("failed to merge conversation facts into kgraph")
+
+    return KGraphResponse(**base)
 
 @router.get("/{session_id}/causal-chain", response_model=List[LogItem])
 async def get_causal_chain(
