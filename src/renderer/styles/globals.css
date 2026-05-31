@@ -293,6 +293,24 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* Brand-logo image variant: render the real logo instead of the "D" glyph. */
+.rail-logo--img,
+.setup-logo--img {
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+  padding: 0;
+}
+
+.rail-logo--img img,
+.setup-logo--img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  user-select: none;
+}
+
 .rail-btn {
   width: 36px;
   height: 36px;
