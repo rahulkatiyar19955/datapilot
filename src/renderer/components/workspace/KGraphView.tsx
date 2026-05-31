@@ -203,6 +203,14 @@ export function KGraphView(): JSX.Element {
   useEffect(() => {
     const sim = simRef.current;
     if (!sim) return;
+    // Re-pin the session hub to the new centre so it doesn't fight the center
+    // force from its old anchor.
+    for (const n of nodesRef.current) {
+      if (n.group === "session") {
+        n.fx = size.w / 2;
+        n.fy = size.h / 2;
+      }
+    }
     sim.force("center", forceCenter(size.w / 2, size.h / 2));
     sim.alpha(0.3).restart();
   }, [size]);

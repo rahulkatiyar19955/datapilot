@@ -310,7 +310,8 @@ async def chat(
                 })
                 for f in facts:
                     f["log_ids"] = cited
-                neo4j_client.write_facts(session_id, facts)
+                # Neo4j I/O is synchronous — keep it off the event loop.
+                await asyncio.to_thread(neo4j_client.write_facts, session_id, facts)
                 # Signal the client to refetch the knowledge graph.
                 yield _format_sse("kgraph", {"facts": len(facts)})
         except Exception:

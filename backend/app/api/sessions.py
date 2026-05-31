@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
+import asyncio
 import json
 import logging
 import re
@@ -399,7 +400,8 @@ async def get_kgraph(session_id: str, db: AsyncSession = Depends(get_db)):
     # Merge in conversation facts persisted live in Neo4j. Best-effort: a Neo4j
     # hiccup falls back to the cached structural graph.
     try:
-        facts = neo4j_client.get_facts_graph(session_id)
+        # Neo4j I/O is synchronous — run it off the event loop.
+        facts = await asyncio.to_thread(neo4j_client.get_facts_graph, session_id)
         node_ids = {n["id"] for n in base.get("nodes", [])}
         for fn in facts.get("nodes", []):
             if fn["id"] not in node_ids:

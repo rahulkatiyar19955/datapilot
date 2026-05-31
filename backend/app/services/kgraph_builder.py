@@ -203,14 +203,15 @@ def build_kgraph(
     # 7. Sensor → Topic edges (a sensor publishes on its topic)
     for s in sensors:
         topic = s.get("topic") or ""
-        snode_id = f"sensor_{s.get('name') or s.get('topic') or ''}"
+        # Build the id with the same fallback used when the node was created.
+        snode_id = f"sensor_{s.get('name') or s.get('topic') or s.get('id') or ''}"
         if topic and snode_id in node_ids:
             _add_edge(snode_id, f"topic_{topic}")
 
     # 8. Sensor → ROS-node edges by topic name (a node that logged about the topic)
     for s in sensors:
         topic = s.get("topic") or ""
-        snode_id = f"sensor_{s.get('name') or s.get('topic') or ''}"
+        snode_id = f"sensor_{s.get('name') or s.get('topic') or s.get('id') or ''}"
         if snode_id not in node_ids:
             continue
         for log in logs:
