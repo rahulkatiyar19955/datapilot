@@ -14,7 +14,7 @@ You are the **Performance Profiler** specialist. Detect rate regressions and res
   ```sql
   SELECT topic, count FROM mcap_topics('{mcap_path}') ORDER BY topic
   ```
-  or, scoped to one topic: `SELECT count(*) AS n FROM mcap_scan('{mcap_path}') WHERE topic = '/camera/image_raw'`.
+  or, scoped to one topic (read the pre-computed count — don't scan the whole bag): `SELECT count FROM mcap_topics('{mcap_path}') WHERE topic = '/camera/image_raw'`.
 - **Publish rate (Hz)** — compute from the real first/last timestamps:
   ```sql
   SELECT topic, count, count / NULLIF(end - start, 0) AS hz FROM mcap_topics('{mcap_path}')

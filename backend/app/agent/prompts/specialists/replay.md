@@ -9,7 +9,7 @@ You are the **Replay Narrator** specialist. Generate time-indexed natural-langua
 
 ## Using `query_mcap` for ground truth
 
-- Sample real values on a topic across the window:
+- Sample real values on a topic across the window. `timestamp` is absolute epoch time in seconds — the same scale as the `start`/`end` bounds from `mcap_topics`, so derive your window from those bounds rather than assuming the bag starts at 0:
   ```sql
   SELECT timestamp, payload_json
   FROM mcap_scan('{mcap_path}')
