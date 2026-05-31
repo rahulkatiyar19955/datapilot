@@ -56,6 +56,49 @@ function formatTick(t: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+// ── Wall-clock formatting for the real bag start/end timestamps ───────────
+function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatDayClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function sameDay(a: string, b: string): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return false;
+  return da.toDateString() === db.toDateString();
+}
+
+function formatDurationShort(seconds: number): string {
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const remS = s % 60;
+  if (m < 60) return remS ? `${m}m ${remS}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return remM ? `${h}h ${remM}m` : `${h}h`;
+}
+
 const LANES: Array<{
   key: TimelineEvent["type"];
   label: string;
@@ -115,9 +158,23 @@ export function TimelineView(): JSX.Element {
         }}
       >
         <span className="section-h">Timeline</span>
-        <span className="pill sm ghost mono">
-          00:00 → {formatTick(displayTotal)}
-        </span>
+        {meta?.startTime && meta?.endTime ? (
+          <span
+            className="pill sm ghost mono"
+            title={`${meta.startTime} → ${meta.endTime}`}
+          >
+            {sameDay(meta.startTime, meta.endTime)
+              ? `${formatClock(meta.startTime)} → ${formatClock(meta.endTime)}`
+              : `${formatDayClock(meta.startTime)} → ${formatDayClock(meta.endTime)}`}
+            {sessionDuration > 0
+              ? ` · ${formatDurationShort(sessionDuration)}`
+              : ""}
+          </span>
+        ) : (
+          <span className="pill sm ghost mono">
+            00:00 → {formatTick(displayTotal)}
+          </span>
+        )}
         <div className="flex1" />
         <button
           className="btn ghost sm"

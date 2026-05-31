@@ -59,6 +59,8 @@ interface RawSession {
   filename: string;
   robot_name?: string;
   duration_seconds?: number;
+  start_time?: string;
+  end_time?: string;
   total_messages?: number;
   topics_list?: string | string[];
   status: string;
@@ -118,6 +120,8 @@ function normalizeSession(r: RawSession): SessionMeta {
     filename: r.filename,
     robot: r.robot_name ?? "unknown",
     durationSeconds: r.duration_seconds ?? 0,
+    startTime: r.start_time ?? undefined,
+    endTime: r.end_time ?? undefined,
     totalMessages: r.total_messages ?? 0,
     topicsCount,
     status: r.status as SessionStatus,

@@ -17,6 +17,10 @@ export interface SessionMeta {
   filename: string;
   robot: string;
   durationSeconds: number;
+  /** ISO 8601 wall-clock time of the first message in the bag, if known. */
+  startTime?: string;
+  /** ISO 8601 wall-clock time of the last message in the bag, if known. */
+  endTime?: string;
   totalMessages: number;
   topicsCount: number;
   status: SessionStatus;
