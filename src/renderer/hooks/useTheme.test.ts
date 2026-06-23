@@ -16,7 +16,10 @@ const STORAGE_KEY = "datapilot.theme";
  * so prefers-color-scheme: light is never satisfied unless overridden here.
  */
 describe("useTheme", () => {
+  let originalDatapilot: unknown;
+
   beforeEach(() => {
+    originalDatapilot = (window as unknown as { datapilot?: unknown }).datapilot;
     window.localStorage.clear();
     document.documentElement.removeAttribute("data-theme");
     // Reset the matchMedia stub to the default "no match" behavior each test.
@@ -35,6 +38,7 @@ describe("useTheme", () => {
   });
 
   afterEach(() => {
+    (window as unknown as { datapilot?: unknown }).datapilot = originalDatapilot;
     vi.restoreAllMocks();
   });
 

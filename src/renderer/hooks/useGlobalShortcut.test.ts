@@ -38,13 +38,14 @@ describe("useGlobalShortcut (issue #43 — no-op placeholder)", () => {
   });
 
   it("does not touch the Electron IPC bridge (issue #43)", () => {
+    const originalDatapilot = (window as unknown as { datapilot?: unknown }).datapilot;
     const datapilot = { shortcut: { register: vi.fn() } };
     (window as unknown as { datapilot: unknown }).datapilot = datapilot;
 
     renderHook(() => useGlobalShortcut());
 
     expect(datapilot.shortcut.register).not.toHaveBeenCalled();
-    delete (window as unknown as { datapilot?: unknown }).datapilot;
+    (window as unknown as { datapilot?: unknown }).datapilot = originalDatapilot;
   });
 
   it("unmounts cleanly without error", () => {

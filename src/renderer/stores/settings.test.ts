@@ -48,7 +48,10 @@ function installDatapilotStub(overrides: Record<string, unknown> = {}) {
 }
 
 describe("useSettingsStore", () => {
+  let originalDatapilot: unknown;
+
   beforeEach(() => {
+    originalDatapilot = (window as unknown as { datapilot?: unknown }).datapilot;
     useSettingsStore.setState(initial, true);
     mockedUpdateBackendKey.mockClear();
     mockedClearAllSessions.mockClear();
@@ -56,7 +59,7 @@ describe("useSettingsStore", () => {
   });
 
   afterEach(() => {
-    delete (window as unknown as { datapilot?: unknown }).datapilot;
+    (window as unknown as { datapilot?: unknown }).datapilot = originalDatapilot;
     vi.restoreAllMocks();
   });
 
