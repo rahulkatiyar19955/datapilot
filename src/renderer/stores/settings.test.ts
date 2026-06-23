@@ -1,0 +1,306 @@
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+
+// The settings store imports updateBackendKey / clearAllSessions from the api
+// service at module load. Mock the whole module so no real fetch is attempted.
+vi.mock("@renderer/services/api", () => ({
+  updateBackendKey: vi.fn().mockResolvedValue({ status: "ok", message: "" }),
+  clearAllSessions: vi.fn().mockResolvedValue({ status: "ok", message: "" }),
+}));
+
+import { useSettingsStore, ACCENT_PRESETS } from "./settings";
+import { updateBackendKey, clearAllSessions } from "@renderer/services/api";
+
+const mockedUpdateBackendKey = vi.mocked(updateBackendKey);
+const mockedClearAllSessions = vi.mocked(clearAllSessions);
+
+const initial = useSettingsStore.getState();
+
+/** Build a fresh window.datapilot stub backed by an in-memory key/value map. */
+function installDatapilotStub(overrides: Record<string, unknown> = {}) {
+  const settingsMap = new Map<string, string>();
+  const keychainMap = new Map<string, string>();
+
+  const stub = {
+    app: {
+      platform: vi.fn().mockResolvedValue("darwin"),
+      userDataPath: vi.fn().mockResolvedValue("/Users/test/Library/datapilot"),
+      homePath: vi.fn().mockResolvedValue("/Users/test"),
+    },
+    settings: {
+      get: vi.fn(async (key: string) => settingsMap.get(key) ?? null),
+      set: vi.fn(async (key: string, value: string) => {
+        settingsMap.set(key, value);
+      }),
+    },
+    keychain: {
+      get: vi.fn(async (key: string) => keychainMap.get(key) ?? null),
+      set: vi.fn(async (key: string, value: string) => {
+        keychainMap.set(key, value);
+      }),
+    },
+    ...overrides,
+  };
+
+  (globalThis as unknown as { window: { datapilot: unknown } }).window =
+    (globalThis as unknown as { window: Record<string, unknown> }).window ?? {};
+  (window as unknown as { datapilot: unknown }).datapilot = stub;
+  return { stub, settingsMap, keychainMap };
+}
+
+describe("useSettingsStore", () => {
+  beforeEach(() => {
+    useSettingsStore.setState(initial, true);
+    mockedUpdateBackendKey.mockClear();
+    mockedClearAllSessions.mockClear();
+    installDatapilotStub();
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { datapilot?: unknown }).datapilot;
+    vi.restoreAllMocks();
+  });
+
+  it("exposes the documented accent presets", () => {
+    expect(ACCENT_PRESETS.map((p) => p.label)).toEqual([
+      "Electric",
+      "Lime",
+      "Magenta",
+      "Amber",
+      "Crimson",
+    ]);
+  });
+
+  it("has the documented default values", () => {
+    const s = useSettingsStore.getState();
+    expect(s.accentColor).toBe("Electric");
+    expect(s.defaultProvider).toBe("google");
+    expect(s.defaultModel).toBe("gemini-3.1-flash-lite");
+    expect(s.concurrentWorkers).toBe(4);
+    expect(s.loading).toBe(false);
+    expect(s.apiKeys.anthropic).toBe("");
+  });
+
+  describe("loadSettings", () => {
+    it("is a no-op when window.datapilot is absent", async () => {
+      delete (window as unknown as { datapilot?: unknown }).datapilot;
+      await useSettingsStore.getState().loadSettings();
+      // loading flag never got flipped because we returned early.
+      expect(useSettingsStore.getState().loading).toBe(false);
+    });
+
+    it("falls back to defaults when settings/keychain are empty", async () => {
+      await useSettingsStore.getState().loadSettings();
+      const s = useSettingsStore.getState();
+      expect(s.loading).toBe(false);
+      expect(s.accentColor).toBe("Electric");
+      expect(s.concurrentWorkers).toBe(4);
+      // Non-Windows default socket.
+      expect(s.dockerSocket).toBe("/var/run/docker.sock");
+      // Unix-style bag archive root from homePath.
+      expect(s.bagArchiveRoot).toBe("/Users/test/datapilot/bags");
+      expect(s.cacheDir).toBe("/Users/test/Library/datapilot");
+    });
+
+    it("uses Windows defaults when the platform is win32", async () => {
+      installDatapilotStub({
+        app: {
+          platform: vi.fn().mockResolvedValue("win32"),
+          userDataPath: vi.fn().mockResolvedValue("C:\\Users\\test\\AppData"),
+          homePath: vi.fn().mockResolvedValue("C:\\Users\\test"),
+        },
+      });
+      await useSettingsStore.getState().loadSettings();
+      const s = useSettingsStore.getState();
+      expect(s.dockerSocket).toBe("\\\\.\\pipe\\docker_engine");
+      expect(s.bagArchiveRoot).toBe("C:\\Users\\test\\datapilot\\bags");
+    });
+
+    it("reads persisted string / bool / number settings and keychain keys", async () => {
+      const { settingsMap, keychainMap } = installDatapilotStub();
+      settingsMap.set("accent_color", "Lime");
+      settingsMap.set("mono_freq", "false");
+      settingsMap.set("concurrent_workers", "8");
+      keychainMap.set("anthropic", "sk-ant-123");
+
+      await useSettingsStore.getState().loadSettings();
+      const s = useSettingsStore.getState();
+      expect(s.accentColor).toBe("Lime");
+      expect(s.monoFreq).toBe(false);
+      expect(s.concurrentWorkers).toBe(8);
+      expect(s.apiKeys.anthropic).toBe("sk-ant-123");
+    });
+
+    it("applies the matching accent preset to the document CSS variable", async () => {
+      const { settingsMap } = installDatapilotStub();
+      settingsMap.set("accent_color", "Crimson");
+      const spy = vi.spyOn(document.documentElement.style, "setProperty");
+      await useSettingsStore.getState().loadSettings();
+      const crimson = ACCENT_PRESETS.find((p) => p.label === "Crimson")!;
+      expect(spy).toHaveBeenCalledWith("--color-accent", crimson.color);
+    });
+
+    it("recovers and clears the loading flag if a datapilot call throws", async () => {
+      installDatapilotStub({
+        app: {
+          platform: vi.fn().mockRejectedValue(new Error("ipc down")),
+          userDataPath: vi.fn().mockResolvedValue("/x"),
+          homePath: vi.fn().mockResolvedValue("/x"),
+        },
+      });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().loading).toBe(false);
+      expect(errSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe("setSetting", () => {
+    it("is a no-op without window.datapilot", async () => {
+      delete (window as unknown as { datapilot?: unknown }).datapilot;
+      await useSettingsStore.getState().setSetting("uiDensity", "Compact");
+      // Optimistic update is gated behind the datapilot guard, so nothing changes.
+      expect(useSettingsStore.getState().uiDensity).toBe("Comfortable");
+    });
+
+    it("optimistically updates state and persists under the snake_case key", async () => {
+      const { settingsMap } = installDatapilotStub();
+      await useSettingsStore.getState().setSetting("uiDensity", "Compact");
+      expect(useSettingsStore.getState().uiDensity).toBe("Compact");
+      expect(settingsMap.get("ui_density")).toBe("Compact");
+    });
+
+    it("stringifies numeric and boolean values when persisting", async () => {
+      const { settingsMap } = installDatapilotStub();
+      await useSettingsStore.getState().setSetting("concurrentWorkers", 6);
+      await useSettingsStore.getState().setSetting("monoFreq", false);
+      expect(settingsMap.get("concurrent_workers")).toBe("6");
+      expect(settingsMap.get("mono_freq")).toBe("false");
+    });
+
+    it("applies the accent preset when accentColor changes", async () => {
+      const spy = vi.spyOn(document.documentElement.style, "setProperty");
+      await useSettingsStore.getState().setSetting("accentColor", "Amber");
+      const amber = ACCENT_PRESETS.find((p) => p.label === "Amber")!;
+      expect(spy).toHaveBeenCalledWith("--color-accent", amber.color);
+    });
+
+    it("syncs default_provider to the backend when defaultProvider changes", async () => {
+      await useSettingsStore.getState().setSetting("defaultProvider", "openai");
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith(
+        "default_provider",
+        "openai",
+      );
+    });
+
+    it("syncs default_model to the backend when defaultModel changes", async () => {
+      await useSettingsStore.getState().setSetting("defaultModel", "gpt-9o");
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith(
+        "default_model",
+        "gpt-9o",
+      );
+    });
+  });
+
+  describe("setApiKey", () => {
+    it("is a no-op without window.datapilot", async () => {
+      delete (window as unknown as { datapilot?: unknown }).datapilot;
+      await useSettingsStore.getState().setApiKey("openai", "sk-1");
+      expect(useSettingsStore.getState().apiKeys.openai).toBe("");
+    });
+
+    it("updates the apiKeys slice, the keychain, and the backend", async () => {
+      const { keychainMap } = installDatapilotStub();
+      await useSettingsStore.getState().setApiKey("openai", "sk-test");
+      expect(useSettingsStore.getState().apiKeys.openai).toBe("sk-test");
+      expect(keychainMap.get("openai")).toBe("sk-test");
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("openai", "sk-test");
+    });
+
+    it("preserves other providers' keys when setting one", async () => {
+      await useSettingsStore.getState().setApiKey("openai", "a");
+      await useSettingsStore.getState().setApiKey("google", "b");
+      const keys = useSettingsStore.getState().apiKeys;
+      expect(keys.openai).toBe("a");
+      expect(keys.google).toBe("b");
+    });
+  });
+
+  describe("syncKeysToBackend", () => {
+    it("pushes only non-empty keys plus default provider/model", async () => {
+      useSettingsStore.setState({
+        apiKeys: {
+          anthropic: "sk-ant",
+          openai: "",
+          google: "g-key",
+          ollama: "",
+          nvidia: "",
+          custom: "",
+        },
+        defaultProvider: "google",
+        defaultModel: "gemini-3.1-flash-lite",
+      });
+      await useSettingsStore.getState().syncKeysToBackend();
+
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("anthropic", "sk-ant");
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("google", "g-key");
+      expect(mockedUpdateBackendKey).not.toHaveBeenCalledWith("openai", "");
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith(
+        "default_provider",
+        "google",
+      );
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith(
+        "default_model",
+        "gemini-3.1-flash-lite",
+      );
+    });
+
+    it("continues syncing even if one backend call rejects", async () => {
+      mockedUpdateBackendKey.mockRejectedValueOnce(new Error("boom"));
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      useSettingsStore.setState({
+        apiKeys: {
+          anthropic: "sk-ant",
+          openai: "",
+          google: "",
+          ollama: "",
+          nvidia: "",
+          custom: "",
+        },
+      });
+      await useSettingsStore.getState().syncKeysToBackend();
+      // The default_provider / default_model calls still fire after the failure.
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith(
+        "default_provider",
+        expect.any(String),
+      );
+      expect(warnSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe("resetSettings", () => {
+    it("clears backend sessions, wipes settings + keychain, and reloads defaults", async () => {
+      const { settingsMap, keychainMap } = installDatapilotStub();
+      settingsMap.set("accent_color", "Lime");
+      keychainMap.set("openai", "sk-old");
+
+      await useSettingsStore.getState().resetSettings();
+
+      expect(mockedClearAllSessions).toHaveBeenCalledTimes(1);
+      // Every persisted setting key was overwritten with an empty string.
+      expect(settingsMap.get("accent_color")).toBe("");
+      // Every provider key was cleared locally and on the backend.
+      expect(keychainMap.get("openai")).toBe("");
+      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("openai", "");
+      // loadSettings ran at the end, restoring defaults and clearing loading.
+      const s = useSettingsStore.getState();
+      expect(s.loading).toBe(false);
+      expect(s.accentColor).toBe("Electric");
+    });
+
+    it("is a no-op without window.datapilot", async () => {
+      delete (window as unknown as { datapilot?: unknown }).datapilot;
+      await useSettingsStore.getState().resetSettings();
+      expect(mockedClearAllSessions).not.toHaveBeenCalled();
+    });
+  });
+});
