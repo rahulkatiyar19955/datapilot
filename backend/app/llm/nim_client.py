@@ -13,7 +13,7 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
-from app.llm.retry import retry_async
+from app.llm.retry import llm_timeout_seconds, retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +78,12 @@ class NimClient:
     def __init__(self, model_id: str):
         import openai
         self.model_id = model_id
+        # Explicit per-request timeout (seconds) so a hung provider can't stall
+        # the agent turn indefinitely (#65/#48).
         self._client = openai.AsyncOpenAI(
             api_key=settings.nvidia_api_key or "",
             base_url=_NIM_BASE_URL,
+            timeout=llm_timeout_seconds(),
         )
 
     @retry_async()
