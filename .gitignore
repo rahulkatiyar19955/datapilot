@@ -53,6 +53,10 @@ data/
 !sample_bags/*.db3
 sample_bags/large_*.mcap
 sample_bags/large_*.db3
+# Small synthetic bag fixtures for the backend test suite must be committed so
+# tests are reproducible in fresh clones and CI (real bags stay ignored above).
+!backend/tests/fixtures/**/*.mcap
+!backend/tests/fixtures/**/*.db3
 
 # Machine learning models, caches and large weights
 *.gguf
