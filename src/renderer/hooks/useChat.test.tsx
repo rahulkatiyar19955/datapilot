@@ -281,43 +281,48 @@ describe("useChat", () => {
     );
   });
 
-  // NOTE: issue #36 — stop() mutates whatever message is currently LAST in the
-  // store, not necessarily the assistant message that the aborted stream was
-  // writing to. If a later message (e.g. a system error) has been appended, the
-  // "stopped by user" marker lands on the wrong message. Characterized here so a
-  // future fix changes this assertion deliberately.
-  it("issue #36: stop() annotates the current LAST message, even a system error", () => {
+  // issue #36 — stop() must annotate the assistant message the aborted stream was
+  // writing to, identified by its id, NOT whatever message is currently LAST in
+  // the store. If a later message (e.g. a system error) has been appended, the
+  // "stopped by user" marker must still land on the assistant message.
+  it("issue #36: stop() annotates the active assistant message, not a trailing system error", () => {
     const { result } = renderHook(() => useChat());
     act(() => result.current.send("q"));
     act(() => lastOnEvent()("error", { message: "stream died" }));
 
     act(() => result.current.stop());
 
-    const last = useChatStore.getState().messages.at(-1)!;
-    // The system error message is the one that gets the (mis-targeted) marker.
-    expect(last.role).toBe("system");
-    expect(last.summary).toBe("*Generation stopped by user.*");
+    const msgs = useChatStore.getState().messages;
+    // The trailing system error is untouched...
+    const systemMsg = msgs.find((m) => m.role === "system")!;
+    expect(systemMsg.summary).toBeUndefined();
+    expect(systemMsg.text).toBe("stream died");
+    // ...and the assistant message carries the stopped marker.
+    const assistantMsg = msgs.find((m) => m.role === "assistant")!;
+    expect(assistantMsg.summary).toBe("*Generation stopped by user.*");
   });
 
-  // NOTE: issue #35 — useChat's send() closes over `sessionId` captured at hook
-  // render time. The streamChat target session id is read at send() time, but the
-  // `actions` branch in the 'final' handler reads the same captured `sessionId`.
-  // If the active session changes after the hook rendered (without a re-render),
-  // the stream can be routed against the stale id. We characterize the current
-  // closure behavior: a freshly rendered hook uses the session present at render.
-  it("issue #35: send() uses the sessionId captured at the latest render", () => {
+  // issue #35 — async SSE handlers must read the LIVE sessionId, not the value
+  // captured in the send() closure. If the active session changes mid-stream
+  // (without a re-render), the 'kgraph' handler must refetch against the current
+  // session, not the one present when send() was called.
+  it("issue #35: SSE handlers read the live sessionId, not a stale closure", () => {
     act(() => {
       useSessionStore.setState({ sessionId: "sess-old" });
     });
-    const { result, rerender } = renderHook(() => useChat());
+    const { result } = renderHook(() => useChat());
 
-    // Change the store, then re-render so the hook re-captures the new id.
+    // send() captures the closure while the session is still "sess-old".
+    act(() => result.current.send("which session?"));
+    expect(streamChat.mock.calls.at(-1)![0]).toBe("sess-old");
+
+    // The active session changes mid-stream WITHOUT re-rendering the hook.
     act(() => {
       useSessionStore.setState({ sessionId: "sess-new" });
     });
-    rerender();
 
-    act(() => result.current.send("which session?"));
-    expect(streamChat.mock.calls.at(-1)![0]).toBe("sess-new");
+    // A late SSE event must resolve against the live session id.
+    act(() => lastOnEvent()("kgraph", {}));
+    expect(getKGraph).toHaveBeenCalledWith("sess-new");
   });
 });
