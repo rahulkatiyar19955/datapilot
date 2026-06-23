@@ -235,27 +235,38 @@ export function streamChat(
       const dec = new TextDecoder();
       let buffer = "";
 
+      // Parse one SSE frame ("event: …\ndata: …") and dispatch it.
+      const emit = (frame: string): void => {
+        const eventMatch = frame.match(/^event: (.+)$/m);
+        const dataMatch = frame.match(/^data: (.+)$/m);
+        if (!dataMatch) return;
+        try {
+          const parsed: unknown = JSON.parse(dataMatch[1]);
+          onEvent(eventMatch?.[1] ?? "message", parsed);
+        } catch {
+          // malformed JSON chunk — skip
+        }
+      };
+
       const pump = (): void => {
         reader
           .read()
           .then(({ done, value }) => {
-            if (done) return;
+            if (done) {
+              // The server may close the stream with the terminal frame not
+              // followed by a blank-line separator, leaving it in `buffer`.
+              // Flush the decoder and dispatch that final frame so it is not
+              // dropped (issue #34).
+              buffer += dec.decode();
+              if (buffer.trim()) emit(buffer);
+              buffer = "";
+              return;
+            }
             buffer += dec.decode(value, { stream: true });
-            // SSE messages are separated by double newlines (can be \r\n\r\n or \n\n)
+            // SSE messages are separated by double newlines (\r\n\r\n or \n\n).
             const parts = buffer.split(/\r?\n\r?\n/);
             buffer = parts.pop() ?? "";
-            for (const part of parts) {
-              const eventMatch = part.match(/^event: (.+)$/m);
-              const dataMatch = part.match(/^data: (.+)$/m);
-              if (dataMatch) {
-                try {
-                  const parsed: unknown = JSON.parse(dataMatch[1]);
-                  onEvent(eventMatch?.[1] ?? "message", parsed);
-                } catch {
-                  // malformed JSON chunk — skip
-                }
-              }
-            }
+            for (const part of parts) emit(part);
             pump();
           })
           .catch((err: unknown) => {

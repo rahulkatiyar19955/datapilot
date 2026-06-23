@@ -349,12 +349,10 @@ describe("streamChat (SSE parser)", () => {
     expect(events[0]).toEqual({ event: "split", data: { half: 2 } });
   });
 
-  // NOTE: issue #34 — the final buffered SSE event is dropped when the stream
-  // closes without a trailing blank-line separator. On `done`, pump() returns
-  // immediately and never flushes the remaining `buffer`, so the last event is
-  // lost. This test characterizes the CURRENT (buggy) behavior: a single,
-  // un-terminated frame produces ZERO emitted events.
-  it("drops the final buffered event if the stream ends without a blank line (issue #34)", async () => {
+  // Regression test for issue #34: when the stream closes WITHOUT a trailing
+  // blank-line separator, pump() must still flush the remaining `buffer` so the
+  // terminal frame (e.g. the `final` answer) is emitted rather than dropped.
+  it("flushes and emits the final buffered event when the stream ends without a blank line (issue #34)", async () => {
     const events: Array<{ event: string; data: unknown }> = [];
     fetchMock.mockResolvedValue(
       // No trailing "\n\n" — this is the last frame and it has no separator.
@@ -362,9 +360,9 @@ describe("streamChat (SSE parser)", () => {
     );
     streamChat("s1", "hi", (event, data) => events.push({ event, data }));
 
-    // Give the pump loop time to drain and hit `done`.
-    await new Promise((r) => setTimeout(r, 30));
-    expect(events).toEqual([]); // last event was never flushed — the bug.
+    await vi.waitFor(() => expect(events.length).toBe(1));
+    expect(events[0].event).toBe("done");
+    expect(events[0].data).toEqual({ final: true });
   });
 
   it("emits an 'error' event when fetch rejects with a network error", async () => {
