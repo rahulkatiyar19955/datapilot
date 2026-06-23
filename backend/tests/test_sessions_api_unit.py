@@ -6,15 +6,6 @@ schema and never touches the shared on-disk dev DB. Neo4j is already mocked
 process-wide by the autouse `mock_neo4j` fixture in `conftest.py`, and the
 ingestion background task is stubbed to a no-op so `create` exercises only the
 endpoint's own DB write (no parser / embedding / network I/O).
-
-Bug characterizations (current `main` behavior — NOT fixed here):
-- NOTE (un-awaited delete bug): `delete_session` calls `db.delete(record)`
-  WITHOUT `await` (sessions.py line ~242). On SQLAlchemy AsyncSession,
-  `delete()` is a coroutine, so omitting `await` means the row is never staged
-  and the following `await db.commit()` persists nothing — yet the endpoint
-  still returns `{"status": "success"}`. The record therefore survives a
-  "successful" delete. A separate branch reportedly fixes this; here we pin the
-  buggy behavior. See `test_delete_session_reports_success_but_does_not_persist`.
 """
 from __future__ import annotations
 
@@ -161,19 +152,12 @@ def test_list_sessions_returns_all_created(db_client):
 # ── delete (single) ────────────────────────────────────────────────────────
 
 
-def test_delete_session_reports_success_but_does_not_persist(db_client):
-    """BUG CHARACTERIZATION (un-awaited delete) — current `main` behavior.
+def test_delete_session_removes_the_record(db_client):
+    """Regression test for issue #62 (un-awaited delete).
 
-    NOTE: `delete_session` calls `db.delete(record)` without `await`
-    (sessions.py:242). On SQLAlchemy AsyncSession, `delete()` is a *coroutine*
-    (raises `RuntimeWarning: coroutine 'AsyncSession.delete' was never awaited`),
-    so the object is never staged for deletion. The subsequent `await db.commit()`
-    commits nothing, yet the endpoint still returns `{"status": "success"}`.
-
-    Result: the API reports success but the record is NOT removed. The
-    instructions say to characterize current behavior, not fix it, so this test
-    pins the buggy contract: delete -> 200 success, but a follow-up GET still
-    finds the session (200, not 404). The fix lives on a different branch.
+    `delete_session` must `await db.delete(record)` so the row is staged and the
+    following `await db.commit()` actually removes it. Otherwise the endpoint
+    reports success while the session survives.
     """
     created = db_client.post("/api/sessions/create", json={"filepath": "todelete.mcap"}).json()
     sid = created["session_id"]
@@ -182,10 +166,9 @@ def test_delete_session_reports_success_but_does_not_persist(db_client):
     assert resp.status_code == 200
     assert resp.json()["status"] == "success"
 
-    # Bug: the record survives the "successful" delete.
+    # The record is actually gone: a follow-up GET 404s.
     follow = db_client.get(f"/api/sessions/{sid}")
-    assert follow.status_code == 200
-    assert follow.json()["id"] == sid
+    assert follow.status_code == 404
 
 
 def test_delete_session_unknown_id_returns_404(db_client):
