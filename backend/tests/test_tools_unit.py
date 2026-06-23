@@ -1,0 +1,270 @@
+"""Unit coverage for the tool `{ok/error}` envelope contract and the
+BaseSpecialist parsing / tool-def-narrowing helpers.
+
+Tools tested (representative — one per worker family):
+  - trajectory_analyzer.query_topic   (Neo4j-backed list)
+  - rosbag_reader.query_graph         (read-only Cypher guard + Neo4j)
+  - planner_failure_inspector.find_aborts
+  - rosbag_reader.retrieve_logs       (embedding + vector search)
+
+Contract (from app/agent/tools/__init__.py):
+  success  -> {"ok": True,  "result": ...}
+  failure  -> {"ok": False, "error": {"code", "message", "retryable"}}
+
+The autouse `mock_neo4j` fixture stubs `neo4j_client.run_query` to return [].
+For the neo4j_failed path we monkeypatch run_query on each tool module's
+imported `neo4j_client` so it raises.
+"""
+from __future__ import annotations
+
+from app.agent.specialists.base import BaseSpecialist
+from app.agent.tools import find_aborts, query_graph, query_topic, retrieve_logs
+
+
+# ── envelope shape helper ────────────────────────────────────────────────────
+
+
+def _assert_ok(env: dict):
+    assert env["ok"] is True
+    assert "result" in env
+    assert "error" not in env
+
+
+def _assert_error(env: dict, *, code: str, retryable: bool | None = None):
+    assert env["ok"] is False
+    assert "error" in env
+    err = env["error"]
+    assert err["code"] == code
+    assert isinstance(err["message"], str)
+    assert "retryable" in err
+    if retryable is not None:
+        assert err["retryable"] is retryable
+
+
+# ── query_topic ──────────────────────────────────────────────────────────────
+
+
+def test_query_topic_ok_envelope():
+    # mock_neo4j returns [] from run_query → success with empty result list.
+    env = query_topic.run({"session_id": "s1", "topic": "/scan"})
+    _assert_ok(env)
+    assert env["result"] == []
+
+
+def test_query_topic_neo4j_failed(monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("bolt down")
+
+    monkeypatch.setattr(query_topic.neo4j_client, "run_query", _boom)
+    env = query_topic.run({"session_id": "s1", "topic": "/scan"})
+    _assert_error(env, code="neo4j_failed", retryable=True)
+    assert "bolt down" in env["error"]["message"]
+
+
+# ── query_graph (read-only guard) ────────────────────────────────────────────
+
+
+def test_query_graph_ok_envelope():
+    env = query_graph.run({"session_id": "s1", "cypher": "MATCH (s:Session {id: $session_id}) RETURN s"})
+    _assert_ok(env)
+
+
+def test_query_graph_missing_cypher():
+    env = query_graph.run({"session_id": "s1", "cypher": "   "})
+    _assert_error(env, code="missing_cypher", retryable=False)
+
+
+def test_query_graph_blocks_write_operations():
+    env = query_graph.run({"session_id": "s1", "cypher": "MATCH (s) DELETE s"})
+    _assert_error(env, code="write_blocked", retryable=False)
+
+
+def test_query_graph_blocks_merge_case_insensitive():
+    env = query_graph.run({"session_id": "s1", "cypher": "mErGe (n:Foo)"})
+    _assert_error(env, code="write_blocked", retryable=False)
+
+
+def test_query_graph_appends_limit_when_absent(monkeypatch):
+    seen: dict = {}
+
+    def _capture(cypher, params):
+        seen["cypher"] = cypher
+        seen["params"] = params
+        return []
+
+    monkeypatch.setattr(query_graph.neo4j_client, "run_query", _capture)
+    query_graph.run({"session_id": "s1", "cypher": "MATCH (s:Session {id:$session_id}) RETURN s", "limit": 7})
+    assert "LIMIT 7" in seen["cypher"]
+    # session_id is always injected into params.
+    assert seen["params"]["session_id"] == "s1"
+
+
+def test_query_graph_neo4j_failed(monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("query exploded")
+
+    monkeypatch.setattr(query_graph.neo4j_client, "run_query", _boom)
+    env = query_graph.run({"session_id": "s1", "cypher": "MATCH (s:Session {id:$session_id}) RETURN s"})
+    _assert_error(env, code="neo4j_failed", retryable=True)
+
+
+# ── find_aborts ──────────────────────────────────────────────────────────────
+
+
+def test_find_aborts_ok_envelope():
+    env = find_aborts.run({"session_id": "s1"})
+    _assert_ok(env)
+    assert env["result"] == []
+
+
+def test_find_aborts_neo4j_failed(monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("session expired")
+
+    monkeypatch.setattr(find_aborts.neo4j_client, "run_query", _boom)
+    env = find_aborts.run({"session_id": "s1"})
+    _assert_error(env, code="neo4j_failed", retryable=True)
+
+
+# ── retrieve_logs (embedding + vector search) ────────────────────────────────
+
+
+def test_retrieve_logs_embed_failed(monkeypatch):
+    def _boom(_texts):
+        raise RuntimeError("no embedding backend")
+
+    monkeypatch.setattr(retrieve_logs.embedding_service, "embed_texts", _boom)
+    env = retrieve_logs.run({"session_id": "s1", "query": "lidar dropout"})
+    _assert_error(env, code="embed_failed", retryable=True)
+
+
+def test_retrieve_logs_neo4j_failed_after_embed(monkeypatch):
+    monkeypatch.setattr(retrieve_logs.embedding_service, "embed_texts", lambda texts: [[0.0, 0.1, 0.2]])
+
+    def _boom(*a, **k):
+        raise RuntimeError("vector index missing")
+
+    monkeypatch.setattr(retrieve_logs.neo4j_client, "run_query", _boom)
+    env = retrieve_logs.run({"session_id": "s1", "query": "lidar dropout"})
+    _assert_error(env, code="neo4j_failed", retryable=True)
+
+
+def test_retrieve_logs_ok_no_expand(monkeypatch):
+    monkeypatch.setattr(retrieve_logs.embedding_service, "embed_texts", lambda texts: [[0.0, 0.1, 0.2]])
+    hits = [{"log_id": "l_1", "ts": "00:00:01.000", "severity": "ERROR", "node": "/n", "msg": "x"}]
+    monkeypatch.setattr(retrieve_logs.neo4j_client, "run_query", lambda *a, **k: hits)
+    env = retrieve_logs.run({"session_id": "s1", "query": "q", "expand_neighbors": False})
+    _assert_ok(env)
+    assert env["result"] == hits
+
+
+# ── BaseSpecialist._parse_text_as_result ─────────────────────────────────────
+
+
+class _DummySpecialist(BaseSpecialist):
+    name = "RootCauseAnalyst"  # type: ignore[assignment]
+
+
+def _parse(text: str) -> dict:
+    return _DummySpecialist()._parse_text_as_result(text)
+
+
+def test_parse_empty_text_returns_empty_response_error():
+    out = _parse("")
+    assert out["error"] == "empty_response"
+    assert out["findings"] == []
+    assert out["confidence"] == 0.0
+
+
+def test_parse_plain_json_object():
+    out = _parse('{"findings": [{"sev": "info", "text": "ok"}], "confidence": 0.7}')
+    assert out["confidence"] == 0.7
+    # log_ids defaulted onto each finding.
+    assert out["findings"][0]["log_ids"] == []
+
+
+def test_parse_strips_json_code_fence():
+    out = _parse('```json\n{"findings": [], "confidence": 0.9}\n```')
+    assert out["confidence"] == 0.9
+
+
+def test_parse_extracts_embedded_object_from_prose():
+    out = _parse('Here you go: {"findings": [], "confidence": 0.5} thanks!')
+    assert out["confidence"] == 0.5
+
+
+def test_parse_malformed_json_reports_error():
+    out = _parse("{not valid json at all")
+    assert out["error"] in {"malformed_json", "no_json"}
+    assert out["findings"] == []
+
+
+def test_parse_no_braces_reports_no_json():
+    out = _parse("just some words no object here")
+    assert out["error"] == "no_json"
+
+
+def test_parse_defaults_findings_and_confidence():
+    out = _parse('{"something": 1}')
+    assert out["findings"] == []
+    assert out["confidence"] == 0.5
+
+
+def test_parse_clamps_confidence_above_one():
+    out = _parse('{"findings": [], "confidence": 5.0}')
+    assert out["confidence"] == 1.0
+
+
+def test_parse_clamps_confidence_below_zero():
+    out = _parse('{"findings": [], "confidence": -3}')
+    assert out["confidence"] == 0.0
+
+
+def test_parse_non_numeric_confidence_falls_back():
+    out = _parse('{"findings": [], "confidence": "high"}')
+    assert out["confidence"] == 0.5
+
+
+def test_parse_drops_non_dict_findings():
+    out = _parse('{"findings": ["bad", {"sev": "info", "text": "good"}], "confidence": 0.4}')
+    assert len(out["findings"]) == 1
+    assert out["findings"][0]["text"] == "good"
+    assert out["findings"][0]["log_ids"] == []
+
+
+def test_parse_findings_not_a_list_coerced_to_empty():
+    out = _parse('{"findings": "oops", "confidence": 0.4}')
+    assert out["findings"] == []
+
+
+def test_parse_preserves_existing_log_ids():
+    out = _parse('{"findings": [{"sev": "critical", "text": "t", "log_ids": ["l_9"]}], "confidence": 0.8}')
+    assert out["findings"][0]["log_ids"] == ["l_9"]
+
+
+# ── tool-def narrowing (llm_tool_defs via worker_subset) ──────────────────────
+
+
+def test_tool_defs_narrowed_to_worker_subset():
+    from app.agent.mcp_client import llm_tool_defs
+
+    subset = ["planner_failure_inspector"]
+    defs = llm_tool_defs(worker_subset=subset)
+    assert defs, "expected at least one tool for the subset"
+    # Every returned tool name is namespaced to an allowed worker.
+    assert all(d["name"].startswith("planner_failure_inspector__") for d in defs)
+    # Each def carries the LLM ToolDef shape.
+    for d in defs:
+        assert set(d) >= {"name", "description", "parameters"}
+
+
+def test_tool_defs_full_catalog_when_no_subset():
+    from app.agent.mcp_client import llm_tool_defs
+
+    all_defs = llm_tool_defs()
+    narrowed = llm_tool_defs(worker_subset=["planner_failure_inspector"])
+    # Full catalog is a strict superset of any single-worker narrowing.
+    assert len(all_defs) > len(narrowed)
+    workers = {d["name"].split("__", 1)[0] for d in all_defs}
+    assert "rosbag_reader" in workers
+    assert "planner_failure_inspector" in workers
