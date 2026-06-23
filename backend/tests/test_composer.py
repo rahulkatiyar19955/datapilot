@@ -10,10 +10,12 @@ The autouse `mock_neo4j` fixture in conftest already replaces
 `neo4j_client.run_query` with a MagicMock returning []. Tests that need rows
 override `composer.neo4j_client.run_query` via monkeypatch.
 
-NOTE (issue #50): `_collect_findings` / `_filter_uncited` intentionally KEEP
-findings whose `log_ids` list is empty (treated as nominal/summary
-observations like "No anomalies detected"). They are never dropped, even
-though they carry no citation grounding. These tests pin that behavior.
+Issue #50 (FIXED): citation grounding is severity-gated. `_filter_uncited`
+DROPS `critical`/`warning` findings that carry no resolvable `log_id` (the
+anti-hallucination contract — high-severity claims must be evidence-backed),
+while `info`/`success` summary observations (e.g. "No anomalies detected") are
+still allowed through with empty `log_ids`. `_collect_findings` aggregates
+verbatim; all severity-gated rejection happens in `_filter_uncited`.
 """
 from __future__ import annotations
 
@@ -57,18 +59,20 @@ def test_collect_findings_aggregates_across_specialists():
         "RootCauseAnalyst": {"findings": [{"sev": "critical", "text": "A", "log_ids": ["l_1"]}]},
         "AnomalyDetector": {"findings": [{"sev": "warning", "text": "B", "log_ids": ["l_2"]}]},
     }
-    findings, dropped = _collect_findings(_state(specialist_outputs=outputs))
+    # Issue #52 (FIXED): _collect_findings returns just the findings list — the
+    # dead `dropped` return was removed. Rejection is _filter_uncited's job.
+    findings = _collect_findings(_state(specialist_outputs=outputs))
     assert {f["text"] for f in findings} == {"A", "B"}
-    # _collect_findings itself drops nothing — that is _filter_uncited's job.
-    assert dropped == []
 
 
 def test_collect_findings_keeps_empty_log_ids():
-    """NOTE (issue #50): empty-log_ids findings survive collection."""
+    """Issue #50 (FIXED): _collect_findings aggregates verbatim — severity-gated
+    rejection is _filter_uncited's job, so even empty-log_ids findings survive
+    collection."""
     outputs = {
         "AnomalyDetector": {"findings": [{"sev": "info", "text": "No anomalies", "log_ids": []}]},
     }
-    findings, _ = _collect_findings(_state(specialist_outputs=outputs))
+    findings = _collect_findings(_state(specialist_outputs=outputs))
     assert len(findings) == 1
     assert findings[0]["text"] == "No anomalies"
 
@@ -77,15 +81,14 @@ def test_collect_findings_skips_non_dict_entries():
     outputs = {
         "RootCauseAnalyst": {"findings": ["not a dict", {"sev": "info", "text": "ok", "log_ids": []}]},
     }
-    findings, _ = _collect_findings(_state(specialist_outputs=outputs))
+    findings = _collect_findings(_state(specialist_outputs=outputs))
     assert len(findings) == 1
     assert findings[0]["text"] == "ok"
 
 
 def test_collect_findings_empty_when_no_outputs():
-    findings, dropped = _collect_findings(_state(specialist_outputs={}))
+    findings = _collect_findings(_state(specialist_outputs={}))
     assert findings == []
-    assert dropped == []
 
 
 # ── _collect_causal ──────────────────────────────────────────────────────────
@@ -126,16 +129,31 @@ def test_filter_keeps_finding_if_any_log_id_resolves():
     assert dropped == []
 
 
-def test_filter_always_keeps_empty_log_ids_finding():
-    """NOTE (issue #50): empty-log_ids findings are never dropped — even with
-    an empty valid set."""
-    findings = [{"sev": "info", "text": "No issues found", "log_ids": []}]
+def test_filter_keeps_empty_log_ids_for_info_and_success():
+    """Issue #50 (FIXED): empty-log_ids findings are kept only for info/success
+    summary observations — even with an empty valid set."""
+    findings = [
+        {"sev": "info", "text": "No issues found", "log_ids": []},
+        {"sev": "success", "text": "All checks passed", "log_ids": []},
+    ]
     kept, dropped = _filter_uncited(findings, valid_log_ids=set())
-    assert len(kept) == 1
+    assert len(kept) == 2
     assert dropped == []
 
 
-def test_filter_missing_log_ids_key_treated_as_empty():
+def test_filter_drops_empty_log_ids_for_critical_and_warning():
+    """Issue #50 (FIXED): high-severity findings (critical/warning) without any
+    resolvable log_id are dropped — the anti-hallucination grounding contract."""
+    findings = [
+        {"sev": "critical", "text": "uncited critical claim", "log_ids": []},
+        {"sev": "warning", "text": "uncited warning claim"},  # no log_ids key
+    ]
+    kept, dropped = _filter_uncited(findings, valid_log_ids=set())
+    assert kept == []
+    assert dropped == ["uncited critical claim", "uncited warning claim"]
+
+
+def test_filter_missing_log_ids_key_treated_as_empty_for_info():
     findings = [{"sev": "info", "text": "summary"}]  # no log_ids key at all
     kept, dropped = _filter_uncited(findings, valid_log_ids=set())
     assert len(kept) == 1
@@ -225,9 +243,9 @@ def test_composer_node_drops_uncited_and_audits(monkeypatch):
     )
 
 
-def test_composer_node_keeps_empty_log_ids_finding(monkeypatch):
-    """NOTE (issue #50): an empty-log_ids 'no issues' finding survives the full
-    composer node even though it has no citation."""
+def test_composer_node_keeps_empty_log_ids_info_finding(monkeypatch):
+    """Issue #50 (FIXED): an empty-log_ids INFO 'no issues' finding survives the
+    full composer node even though it has no citation."""
     monkeypatch.setattr(composer_mod.neo4j_client, "run_query", lambda *a, **k: [])
     outputs = {"AnomalyDetector": {"findings": [{"sev": "info", "text": "No anomalies", "log_ids": []}]}}
     out = asyncio.run(composer_node(_state(specialist_outputs=outputs), router=MockRouter()))
@@ -235,13 +253,37 @@ def test_composer_node_keeps_empty_log_ids_finding(monkeypatch):
     assert "No anomalies" in texts
 
 
-def test_composer_partial_flag_follows_replan_overflow(monkeypatch):
-    """NOTE (issues #53/#54): composer sets partial only when replan_count > 5,
-    matching the replan_node bail boundary (6), not MAX_REPLANS (5)."""
+def test_composer_node_drops_empty_log_ids_critical_finding(monkeypatch):
+    """Issue #50 (FIXED): an empty-log_ids CRITICAL finding is dropped by the
+    full composer node and recorded in the audit trail."""
     monkeypatch.setattr(composer_mod.neo4j_client, "run_query", lambda *a, **k: [])
-    # replan_count == 5 → NOT partial (5 > 5 is False).
-    out5 = asyncio.run(composer_node(_state(replan_count=5), router=MockRouter()))
-    assert out5["final"]["partial"] is False
-    # replan_count == 6 → partial.
-    out6 = asyncio.run(composer_node(_state(replan_count=6), router=MockRouter()))
-    assert out6["final"]["partial"] is True
+    outputs = {"RootCauseAnalyst": {"findings": [{"sev": "critical", "text": "uncited crit", "log_ids": []}]}}
+    out = asyncio.run(composer_node(_state(specialist_outputs=outputs), router=MockRouter()))
+    assert out["final"]["findings"] == []
+    assert any(
+        e.get("step_kind") == "compose" and "dropped" in str(e.get("result_summary", ""))
+        for e in out["audit_trail"]
+    )
+
+
+def test_composer_partial_flag_aligns_on_max_replans(monkeypatch):
+    """Issues #53/#54 (FIXED): composer emits partial=True once the replan cap is
+    exhausted, i.e. when replan_count >= MAX_REPLANS (5), reconciling all three
+    thresholds on MAX_REPLANS."""
+    from app.agent.state import MAX_REPLANS
+
+    monkeypatch.setattr(composer_mod.neo4j_client, "run_query", lambda *a, **k: [])
+    # replan_count == MAX_REPLANS - 1 (4) → NOT partial (still had budget).
+    out4 = asyncio.run(composer_node(_state(replan_count=MAX_REPLANS - 1), router=MockRouter()))
+    assert out4["final"]["partial"] is False
+    # replan_count == MAX_REPLANS (5) → cap exhausted → partial.
+    out5 = asyncio.run(composer_node(_state(replan_count=MAX_REPLANS), router=MockRouter()))
+    assert out5["final"]["partial"] is True
+
+
+def test_composer_partial_flag_honors_force_compose(monkeypatch):
+    """Issue #53 (FIXED): the replan overflow path sets force_compose instead of
+    writing a dead `final`; composer_node reads it to emit partial=True."""
+    monkeypatch.setattr(composer_mod.neo4j_client, "run_query", lambda *a, **k: [])
+    out = asyncio.run(composer_node(_state(replan_count=0, force_compose=True), router=MockRouter()))
+    assert out["final"]["partial"] is True

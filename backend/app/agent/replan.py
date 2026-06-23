@@ -2,8 +2,10 @@
 Replan node — rewrite the remaining plan when a specialist returns low
 confidence, a tool error, or a contradiction.
 
-Cap: 5 replans per turn (`docs/implementation.md` §4.3). On overflow, the
-graph proceeds straight to the composer with `partial=True`.
+Cap: MAX_REPLANS (5) replans per turn (`docs/implementation.md` §4.3). Once the
+incoming `replan_count` reaches the cap, the node sets the `force_compose` flag
+(rather than calling the LLM again) and the `route_after_replan` edge proceeds
+straight to the composer, which emits `partial=True`.
 """
 from __future__ import annotations
 
@@ -21,18 +23,22 @@ logger = logging.getLogger(__name__)
 
 async def replan_node(state: GraphState, *, router: LLMRouter) -> dict[str, Any]:
     started = time.perf_counter()
-    replan_count = int(state.get("replan_count", 0)) + 1
-    if replan_count > MAX_REPLANS:
-        # Bail to composer with partial flag.
+    replan_count = int(state.get("replan_count", 0))
+    if replan_count >= MAX_REPLANS:
+        # Replan budget exhausted (issues #53/#54). Don't increment or call the
+        # LLM again — set `force_compose` so the graph routes replan → composer,
+        # which emits partial=True. We deliberately write NO `final` here: the
+        # old `{"partial": True}` write was discarded by the replan → dispatcher
+        # edge, and the composer is the single source of the final envelope.
         return {
-            "replan_count": replan_count,
-            "final": {"partial": True} if state.get("final") is None else None,
+            "force_compose": True,
             "audit_trail": [{
                 "step_kind": "replan",
                 "ts": started,
-                "result_summary": f"replan cap exceeded ({MAX_REPLANS}); composing partial",
+                "result_summary": f"replan cap reached ({MAX_REPLANS}); composing partial",
             }],
         }
+    replan_count += 1
 
     client = router.for_supervisor()
 
@@ -103,3 +109,15 @@ async def replan_node(state: GraphState, *, router: LLMRouter) -> dict[str, Any]
         "replan_count": replan_count,
         "audit_trail": [audit_event],
     }
+
+
+def route_after_replan(state: GraphState) -> str:
+    """Conditional edge after replan (issue #53).
+
+      - 'composer' when the replan node exhausted its budget and set
+        `force_compose` — proceed straight to a partial compose.
+      - 'dispatcher' otherwise, to execute the rewritten plan tail.
+    """
+    if state.get("force_compose"):
+        return "composer"
+    return "dispatcher"
