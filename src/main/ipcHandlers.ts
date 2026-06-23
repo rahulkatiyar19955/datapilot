@@ -10,6 +10,16 @@ import fs from "fs";
 import path from "path";
 import { dockerOrchestrator } from "./dockerOrchestrator";
 import type { DockerStatus, StorageUsage } from "@shared/ipc";
+import {
+  IpcValidationError,
+  assertKnownService,
+  assertSafeKey,
+  assertString,
+  assertSubId,
+  assertTheme,
+  isPathWithinRoot,
+  isUnsafeOpenTarget,
+} from "./ipcValidation";
 
 // Active log-stream unsubscribe callbacks, keyed by per-renderer subscription id.
 const activeLogStreams = new Map<string, () => void>();
@@ -53,6 +63,69 @@ function resolveUserPath(inputPath: string): string {
     return path.join(app.getPath("home"), inputPath.slice(2));
   }
   return path.resolve(inputPath);
+}
+
+/**
+ * Validates a renderer-supplied path for `shell:openPath` (issue #27).
+ *
+ * The renderer only ever needs to reveal/open the user's own data: the
+ * userData directory (logs/settings), the home directory, and the selected bag
+ * or its containing folder (which live under home). We therefore:
+ *   1. require a string,
+ *   2. canonicalize it (resolve `~`, `..`, symlinks) via realpath,
+ *   3. require it to exist,
+ *   4. reject executable / app-bundle extensions,
+ *   5. constrain it to the expected roots (userData, home).
+ *
+ * Returns the canonical path plus whether it is a directory; throws
+ * `IpcValidationError` on any violation.
+ */
+function validateOpenPath(value: unknown): {
+  canonicalPath: string;
+  isDirectory: boolean;
+} {
+  const raw = assertString(value, "path");
+  if (raw.length === 0) {
+    throw new IpcValidationError("path must not be empty");
+  }
+
+  // Resolve `~` and relative segments first, then canonicalize through the
+  // filesystem so symlinks cannot escape the allowed roots.
+  const resolved = resolveUserPath(raw);
+
+  let canonicalPath: string;
+  let stats: fs.Stats;
+  try {
+    canonicalPath = fs.realpathSync(resolved);
+    stats = fs.statSync(canonicalPath);
+  } catch {
+    // Non-existent path, broken symlink, or permission error — reject without
+    // leaking filesystem details to the renderer.
+    throw new IpcValidationError("path does not exist or is not accessible");
+  }
+
+  if (isUnsafeOpenTarget(canonicalPath)) {
+    throw new IpcValidationError("refusing to open an executable path");
+  }
+
+  // Canonicalize the allowed roots too, so symlinked userData/home dirs match.
+  const allowedRoots: string[] = [];
+  for (const root of [app.getPath("userData"), app.getPath("home")]) {
+    try {
+      allowedRoots.push(fs.realpathSync(root));
+    } catch {
+      allowedRoots.push(path.resolve(root));
+    }
+  }
+
+  const withinRoot = allowedRoots.some((root) =>
+    isPathWithinRoot(canonicalPath, root, path.sep),
+  );
+  if (!withinRoot) {
+    throw new IpcValidationError("path is outside the allowed directories");
+  }
+
+  return { canonicalPath, isDirectory: stats.isDirectory() };
 }
 
 function getPathUsage(targetPath: string): StorageUsage {
@@ -131,7 +204,10 @@ export function registerIpcHandlers(): void {
   // renderer calls `docker:logs:stop` with the same subId to close the stream.
   ipcMain.handle(
     "docker:logs:start",
-    async (event, subId: string, service: string): Promise<void> => {
+    async (event, rawSubId: unknown, rawService: unknown): Promise<void> => {
+      const subId = assertSubId(rawSubId);
+      const service = assertKnownService(rawService);
+
       // If the renderer reuses a subId, close the prior stream first.
       activeLogStreams.get(subId)?.();
       activeLogStreams.delete(subId);
@@ -168,7 +244,8 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "docker:logs:stop",
-    async (_event, subId: string): Promise<void> => {
+    async (_event, rawSubId: unknown): Promise<void> => {
+      const subId = assertSubId(rawSubId);
       activeLogStreams.get(subId)?.();
       activeLogStreams.delete(subId);
     },
@@ -211,7 +288,8 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "theme:set",
-    async (_event, theme: "dark" | "light" | "system"): Promise<void> => {
+    async (_event, rawTheme: unknown): Promise<void> => {
+      const theme = assertTheme(rawTheme);
       const settings = readSettings();
       settings["theme"] = theme;
       writeSettings(settings);
@@ -228,7 +306,8 @@ export function registerIpcHandlers(): void {
   // Settings support
   ipcMain.handle(
     "settings:get",
-    async (_event, key: string): Promise<string | null> => {
+    async (_event, rawKey: unknown): Promise<string | null> => {
+      const key = assertSafeKey(rawKey);
       const settings = readSettings();
       return settings[key] || null;
     },
@@ -236,7 +315,9 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "settings:set",
-    async (_event, key: string, value: string): Promise<void> => {
+    async (_event, rawKey: unknown, rawValue: unknown): Promise<void> => {
+      const key = assertSafeKey(rawKey);
+      const value = assertString(rawValue, "value");
       const settings = readSettings();
       settings[key] = value;
       writeSettings(settings);
@@ -246,7 +327,8 @@ export function registerIpcHandlers(): void {
   // Secure keychain storage via safeStorage
   ipcMain.handle(
     "keychain:get",
-    async (_event, key: string): Promise<string | null> => {
+    async (_event, rawKey: unknown): Promise<string | null> => {
+      const key = assertSafeKey(rawKey);
       const settings = readSettings();
       const encryptedValue = settings[`secure_${key}`];
       if (!encryptedValue) return null;
@@ -270,7 +352,9 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "keychain:set",
-    async (_event, key: string, value: string): Promise<void> => {
+    async (_event, rawKey: unknown, rawValue: unknown): Promise<void> => {
+      const key = assertSafeKey(rawKey);
+      const value = assertString(rawValue, "value");
       const settings = readSettings();
       try {
         if (safeStorage.isEncryptionAvailable()) {
@@ -291,17 +375,36 @@ export function registerIpcHandlers(): void {
     },
   );
 
-  // Shell support
+  // Shell support.
+  //
+  // Issue #27: `shell.openPath` hands a path straight to the OS "open" handler,
+  // which will happily execute scripts/apps. We canonicalize and constrain the
+  // path to the user's own data roots and reject executable targets. For a file
+  // we *reveal* it in its folder (showItemInFolder) rather than opening it,
+  // which is the legitimate intent; directories are opened directly.
   ipcMain.handle(
     "shell:openPath",
-    async (_event, pathStr: string): Promise<void> => {
-      await shell.openPath(pathStr);
+    async (_event, rawPath: unknown): Promise<void> => {
+      const { canonicalPath, isDirectory } = validateOpenPath(rawPath);
+      if (isDirectory) {
+        const errMessage = await shell.openPath(canonicalPath);
+        if (errMessage) {
+          throw new IpcValidationError(`failed to open path: ${errMessage}`);
+        }
+      } else {
+        // Reveal the file in its containing folder instead of launching it.
+        shell.showItemInFolder(canonicalPath);
+      }
     },
   );
 
   ipcMain.handle(
     "storage:usage",
-    async (_event, targetPath: string): Promise<StorageUsage> => {
+    async (_event, rawTargetPath: unknown): Promise<StorageUsage> => {
+      // Basic type validation only. TODO(#37): add path-containment checks and
+      // an async / bounded directory walk to prevent traversal + DoS on a
+      // hostile or pathological path. That hardening is tracked separately.
+      const targetPath = assertString(rawTargetPath, "path");
       return getPathUsage(targetPath);
     },
   );
