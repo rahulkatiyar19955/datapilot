@@ -1,13 +1,20 @@
 """
-Transparent LLM client wrapper that logs all prompts and responses to a
-rotating log file at ${DATAPILOT_DATA_DIR}/llm_prompts.log.
+Transparent LLM client wrapper.
 
-Each entry is a single JSON line:
+Prompt/response *content* logging is **opt-in** and OFF by default. It is
+enabled only when the environment variable ``DATAPILOT_PROMPT_LOGGING`` is set
+to ``"1"``. When disabled (the default), the wrapper passes calls straight
+through to the inner client and writes no prompt or response content anywhere —
+system prompts, user/assistant messages, and model output never touch disk.
+
+When enabled, every ``complete()`` call is written as a single JSON line to a
+rotating log file at ``${DATAPILOT_DATA_DIR}/llm_prompts.log``:
   {"ts": "…", "direction": "request", "provider": "…", "model": "…", "system": "…", "messages": […]}
   {"ts": "…", "direction": "response", "provider": "…", "model": "…", "content": "…", "usage": {…}}
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import logging.handlers
@@ -19,6 +26,15 @@ from typing import Any, AsyncIterator
 from app.llm.base import CompletionChunk, CompletionResponse, LLMClient, Message, ToolDef
 
 _logger_lock = threading.Lock()
+
+
+def prompt_logging_enabled() -> bool:
+    """True only when prompt/response content logging is explicitly opted in.
+
+    Read live from the environment (not cached) so tests and runtime toggles
+    take effect without a process restart.
+    """
+    return os.environ.get("DATAPILOT_PROMPT_LOGGING") == "1"
 
 
 def _get_prompt_logger() -> logging.Logger:
@@ -70,14 +86,18 @@ class LoggingLLMClient:
         max_tokens: int = 4096,
         stream: bool = False,
     ) -> CompletionResponse | AsyncIterator[CompletionChunk]:
-        _write({
-            "direction": "request",
-            "provider": self.provider,
-            "model": self.model_id,
-            "system": system,
-            "messages": messages,
-            "stream": stream,
-        })
+        logging_on = prompt_logging_enabled()
+
+        if logging_on:
+            # Offload the synchronous file write so it never blocks the event loop.
+            await asyncio.to_thread(_write, {
+                "direction": "request",
+                "provider": self.provider,
+                "model": self.model_id,
+                "system": system,
+                "messages": messages,
+                "stream": stream,
+            })
 
         result = await self._inner.complete(
             system=system,
@@ -90,16 +110,22 @@ class LoggingLLMClient:
         )
 
         if not stream:
-            _write({
-                "direction": "response",
-                "provider": self.provider,
-                "model": self.model_id,
-                "content": result.get("content", ""),       # type: ignore[union-attr]
-                "tool_calls": result.get("tool_calls", []), # type: ignore[union-attr]
-                "usage": result.get("usage", {}),           # type: ignore[union-attr]
-                "finish_reason": result.get("finish_reason", ""),  # type: ignore[union-attr]
-            })
+            if logging_on:
+                await asyncio.to_thread(_write, {
+                    "direction": "response",
+                    "provider": self.provider,
+                    "model": self.model_id,
+                    "content": result.get("content", ""),       # type: ignore[union-attr]
+                    "tool_calls": result.get("tool_calls", []), # type: ignore[union-attr]
+                    "usage": result.get("usage", {}),           # type: ignore[union-attr]
+                    "finish_reason": result.get("finish_reason", ""),  # type: ignore[union-attr]
+                })
             return result
+
+        # Streaming: when logging is off, return the inner stream untouched so
+        # the wrapper is fully transparent (no accumulation, no content write).
+        if not logging_on:
+            return result  # type: ignore[return-value]
 
         return self._log_stream(result)  # type: ignore[arg-type]
 
@@ -117,7 +143,7 @@ class LoggingLLMClient:
             if chunk.get("finish_reason"):
                 finish_reason = chunk["finish_reason"]
             yield chunk
-        _write({
+        await asyncio.to_thread(_write, {
             "direction": "response",
             "provider": self.provider,
             "model": self.model_id,

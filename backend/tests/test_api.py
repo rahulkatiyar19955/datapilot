@@ -41,16 +41,27 @@ def test_download_llm_logs(tmp_path, monkeypatch):
     from app.config import settings
     # Override settings.datapilot_data_dir to a temp path
     monkeypatch.setattr(settings, "datapilot_data_dir", str(tmp_path))
-    
+
+    # Prompt logging is opt-in (issue #61): when it is disabled, prompt
+    # contents are never served even if a stale log file exists on disk.
+    monkeypatch.delenv("DATAPILOT_PROMPT_LOGGING", raising=False)
+    log_file = tmp_path / "llm_prompts.log"
+    log_file.write_text("dummy log line\n")
+    response = client.get("/api/settings/llm-logs")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "LLM prompt logging is disabled"
+
+    # When logging is explicitly enabled, the endpoint serves the log file.
+    monkeypatch.setenv("DATAPILOT_PROMPT_LOGGING", "1")
+
     # 1. When file doesn't exist
+    log_file.unlink()
     response = client.get("/api/settings/llm-logs")
     assert response.status_code == 404
     assert response.json()["detail"] == "LLM prompts log file not found"
-    
+
     # 2. When file exists
-    log_file = tmp_path / "llm_prompts.log"
     log_file.write_text("dummy log line\n")
-    
     response = client.get("/api/settings/llm-logs")
     assert response.status_code == 200
     assert response.text == "dummy log line\n"
