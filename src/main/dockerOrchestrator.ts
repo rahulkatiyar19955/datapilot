@@ -80,6 +80,81 @@ class DockerOrchestrator {
     return app.getPath("userData");
   }
 
+  /**
+   * Default name of the dedicated, in-home directory that holds rosbags when the
+   * user has not configured `DATAPILOT_BAG_ROOT`. Living under `$HOME` (rather
+   * than being `$HOME` itself) is what lets us mount a single narrow directory
+   * while keeping the backend's host→container path translation intact.
+   */
+  private static readonly DEFAULT_BAG_DIR = "datapilot_bags";
+
+  /**
+   * Computes the single host directory that containers may read bags from, plus
+   * the path it must appear at *inside* the container.
+   *
+   * Security (#33): we deliberately do NOT bind-mount all of `$HOME`. A whole-home
+   * mount exposes SSH keys, `.aws`, browser profiles and unrelated projects to
+   * every backend/worker container — a least-privilege violation. Instead we mount
+   * one bags directory, read-only.
+   *
+   * Trade-off / why a root (not the selected bag's parent): `ensureStackUp()` boots
+   * the stack at app launch, before any bag is picked (the renderer sends the bag
+   * path to the backend over HTTP at ingestion time, not through this orchestrator,
+   * and the IPC contract is out of scope to change here). So the directory to mount
+   * is not yet known when the stack first starts, and we mount a configurable bags
+   * root instead of the whole home.
+   *
+   * Container-path contract: `backend/app/services/parser.py:_resolve_path` (which
+   * is out of scope to edit) translates a host path `/Users|home/<user>/<rel...>`
+   * to `${DATAPILOT_HOST_MOUNT}/<rel...>` by stripping the first three path
+   * segments and re-rooting the remainder under the mount point. For that to keep
+   * resolving, a bags root that lives under `$HOME` must be mounted at
+   * `${HOST_MOUNT}/<root-relative-to-home>` (e.g. `$HOME/datapilot_bags` →
+   * `/host/datapilot_bags`), NOT flatly at `/host`. We therefore return a target
+   * that preserves the home-relative suffix whenever the root is inside `$HOME`.
+   *
+   * If `DATAPILOT_BAG_ROOT` points *outside* `$HOME`, the current backend
+   * translation cannot map it (it only rewrites home-rooted paths); we still mount
+   * it (read-only) at `${HOST_MOUNT}` as a best effort and log a warning, but the
+   * supported, translation-safe configuration is a directory under `$HOME`.
+   */
+  private getBagMount(): { hostDir: string; containerDir: string } {
+    const home = app.getPath("home");
+    const hostMount = "/host";
+
+    const configured = process.env.DATAPILOT_BAG_ROOT?.trim();
+    const hostDir =
+      configured && configured.length > 0
+        ? this.resolveHostPath(configured)
+        : path.join(home, DockerOrchestrator.DEFAULT_BAG_DIR);
+
+    // Where the bags root sits relative to $HOME decides the in-container target,
+    // so that parser.py's `${HOST_MOUNT}/<home-relative-suffix>` translation lands
+    // on this mount.
+    const relativeToHome = path.relative(home, hostDir);
+    const isInsideHome =
+      relativeToHome.length > 0 &&
+      !relativeToHome.startsWith("..") &&
+      !path.isAbsolute(relativeToHome);
+
+    if (!isInsideHome) {
+      console.warn(
+        `DATAPILOT_BAG_ROOT (${hostDir}) is not inside the home directory; ` +
+          `the backend path translation only rewrites home-rooted paths, so ` +
+          `bag resolution may fail. Prefer a directory under ${home}.`,
+      );
+      return { hostDir, containerDir: hostMount };
+    }
+
+    // Normalize to POSIX separators for the in-container path (containers are Linux
+    // even when the host is Windows).
+    const containerDir = path.posix.join(
+      hostMount,
+      relativeToHome.split(path.sep).join(path.posix.sep),
+    );
+    return { hostDir, containerDir };
+  }
+
   public getStatus(): DockerStatus {
     return this.status;
   }
@@ -471,9 +546,23 @@ class DockerOrchestrator {
       });
       await this.ensureImages();
 
-      const userHome = app.getPath("home");
       const dataMountDir = this.getBackendDataMountDir();
       fs.mkdirSync(dataMountDir, { recursive: true });
+
+      // Scope container access to a single bags directory instead of all of $HOME
+      // (#33). `bagBind` is the read-only host→container bind every bag-reading
+      // container shares. We create the host dir so the mount target exists even
+      // before the user drops bags into it.
+      const bagMount = this.getBagMount();
+      try {
+        fs.mkdirSync(bagMount.hostDir, { recursive: true });
+      } catch (err) {
+        console.warn(
+          `Could not create bag mount directory ${bagMount.hostDir}:`,
+          err,
+        );
+      }
+      const bagBind = `${bagMount.hostDir}:${bagMount.containerDir}:ro`;
 
       // Start services in order: Neo4j -> FastAPI Backend -> 5 workers
       console.log("Starting Neo4j...");
@@ -527,7 +616,7 @@ class DockerOrchestrator {
         Image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcap-parser:latest"),
         Env: ["DATAPILOT_HOST_MOUNT=/host"],
         HostConfig: {
-          Binds: [`${userHome}:/host:ro`],
+          Binds: [bagBind],
           NetworkMode: "datapilot-net",
         },
       });
@@ -578,7 +667,7 @@ class DockerOrchestrator {
           },
           Binds: [
             `${dataMountDir}:/data`,
-            `${userHome}:/host:ro`, // Read-only mount of user home directory
+            bagBind, // Read-only mount of the scoped bags directory (#33)
           ],
           NetworkMode: "datapilot-net",
         },
@@ -617,13 +706,13 @@ class DockerOrchestrator {
         {
           name: "rosbag-reader",
           image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-rosbag-reader:latest"),
-          binds: [`${userHome}:/host:ro`],
+          binds: [bagBind],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
           name: "trajectory-analyzer",
           image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-trajectory-analyzer:latest"),
-          binds: [`${userHome}:/host:ro`],
+          binds: [bagBind],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
@@ -635,7 +724,7 @@ class DockerOrchestrator {
         {
           name: "anomaly-detector",
           image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-mcp-anomaly-detector:latest"),
-          binds: [`${userHome}:/host:ro`],
+          binds: [bagBind],
           env: ["DATAPILOT_HOST_MOUNT=/host", ...neo4jEnv],
         },
         {
