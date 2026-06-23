@@ -149,7 +149,8 @@ class GraphState(TypedDict, total=False):
     plan_idx: int                                                # current step pointer
     specialist_outputs: dict[str, SpecResult]
     retrieval_context: Annotated[list[Citation], operator.add]
-    replan_count: int                                            # cap = 5
+    replan_count: int                                            # cap = MAX_REPLANS
+    force_compose: bool                                          # replan overflow → partial compose
     audit_trail: Annotated[list[AuditEvent], operator.add]
     token_budget_remaining: int
     final: ChatMessageEnvelope | None
