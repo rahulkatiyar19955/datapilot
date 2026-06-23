@@ -39,6 +39,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Lint (ESLint)
+        run: pnpm lint
+
       - name: Unit tests (Vitest)
         run: pnpm test
 
