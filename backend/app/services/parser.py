@@ -744,6 +744,18 @@ class IngestionParser:
                     start_time = t_sec
                 end_time = t_sec
 
+                # `topics_dict` is pre-populated from `reader.connections`, but a
+                # corrupt / partial bag can carry a message on a topic with no
+                # connection record. Indexing unconditionally would raise
+                # KeyError and abort the whole parse (issue #82). Register the
+                # topic on first sight so it's counted gracefully instead — this
+                # mirrors the `if topic in topics_dict` guard on the mcap path.
+                topics_dict.setdefault(topic, {
+                    "name": topic,
+                    "hz": 0.0,  # computed below from real timestamps
+                    "type": getattr(connection, "msgtype", "unknown"),
+                    "msgs": 0,
+                })
                 topics_dict[topic]["msgs"] += 1
 
                 # Only deserialize messages we actually need to analyse
