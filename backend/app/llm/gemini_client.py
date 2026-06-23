@@ -14,7 +14,7 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
-from app.llm.retry import retry_async
+from app.llm.retry import llm_timeout_seconds, retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,11 @@ class GeminiClient:
 
     def __init__(self, model_id: str):
         from google import genai
-        self.client = genai.Client(api_key=settings.gemini_api_key)
+        # Explicit per-request timeout so a hung provider can't stall the agent
+        # turn indefinitely (#65/#48). google-genai expects the timeout in
+        # milliseconds via http_options, unlike the seconds-based SDKs.
+        http_options = {"timeout": int(llm_timeout_seconds() * 1000)}
+        self.client = genai.Client(api_key=settings.gemini_api_key, http_options=http_options)
         self.model_id = model_id
         self._genai = genai
         

@@ -14,7 +14,7 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
-from app.llm.retry import retry_async
+from app.llm.retry import llm_timeout_seconds, retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,12 @@ class AnthropicClient:
         # Lazy import so the agent layer can load without the SDK.
         import anthropic
         self.model_id = model_id
-        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        # Explicit per-request timeout (seconds) so a hung provider can't stall
+        # the agent turn indefinitely (#65/#48).
+        self._client = anthropic.AsyncAnthropic(
+            api_key=settings.anthropic_api_key,
+            timeout=llm_timeout_seconds(),
+        )
 
     @retry_async()
     async def complete(
