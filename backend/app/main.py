@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import APITokenMiddleware
 from app.db_sqlite import init_db
 from app.api.sessions import router as sessions_router
 from app.api.chat import router as chat_router
@@ -60,10 +61,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# This is a local-first backend that only listens on the user's machine.
+# Security (issue #64): this is a local-first backend that must only be reachable
+# by the Electron renderer. Without these guards any web page the user visits
+# could POST to http://localhost:8000/api/... (wipe sessions/Neo4j, overwrite
+# keys, burn LLM tokens).
+#
+# Defense-in-depth, env-gated token check (innermost: added first so CORS wraps
+# it and still tags the 401 response with CORS headers). No-op when
+# DATAPILOT_API_TOKEN is unset, so dev/tests are unaffected.
+app.add_middleware(APITokenMiddleware)
+
+# CORS (always on): allow ONLY the Electron renderer — the Vite dev server on a
+# loopback port (http://localhost:<port> / http://127.0.0.1:<port>) and the
+# packaged renderer loaded from file:// (which sends `Origin: null`). Arbitrary
+# internet origins are rejected. allow_credentials stays False to match prior
+# behavior (the renderer uses bearer/header auth, not cookies).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|file://.*|null)$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
