@@ -98,6 +98,60 @@ def _resolve_path(filepath: str) -> str:
     logger.warning("Could not resolve path %s (HOST_MOUNT=%s)", filepath, _HOST_MOUNT)
     return filepath
 
+
+# Allowed rosbag extensions (case-insensitive). Anything else is rejected before
+# we ever call open() — see _validate_bag_path / issue #80.
+_ALLOWED_BAG_SUFFIXES = frozenset({".mcap", ".db3"})
+
+
+def _is_within(child: str, parent: str) -> bool:
+    """True when realpath `child` is inside realpath `parent`.
+
+    Uses os.path.commonpath (not str.startswith) so that e.g. ``/bags-evil`` is
+    NOT treated as living under ``/bags``.
+    """
+    parent_real = os.path.realpath(parent)
+    child_real = os.path.realpath(child)
+    try:
+        return os.path.commonpath([parent_real, child_real]) == parent_real
+    except ValueError:
+        # Different drives / mix of absolute+relative → not contained.
+        return False
+
+
+def _validate_bag_path(filepath: str) -> str:
+    """Validate and contain a bag file path before it is opened (issue #80).
+
+    `filepath` originates from an API/IPC payload and is otherwise untrusted.
+    Returns the canonical realpath on success; raises ValueError on rejection.
+
+    Rules:
+    - Canonicalize with os.path.realpath (defeats ``..`` and symlink escapes).
+    - The path must exist and be a *regular* file (rejects dirs, devices, FIFOs).
+    - The extension must be one of _ALLOWED_BAG_SUFFIXES (case-insensitive).
+    - If DATAPILOT_BAG_ROOT is set, the realpath must be contained within it.
+      If it is unset, no root is imposed (host absolute paths are still accepted)
+      but the realpath/regular-file/extension checks always apply.
+    """
+    if not isinstance(filepath, str) or not filepath:
+        raise ValueError("invalid bag path")
+
+    real = os.path.realpath(filepath)
+
+    if Path(real).suffix.lower() not in _ALLOWED_BAG_SUFFIXES:
+        raise ValueError("invalid bag path: unsupported file extension")
+
+    if not os.path.isfile(real):
+        # isfile() follows symlinks and is False for dirs/FIFOs/devices/missing.
+        raise ValueError("invalid bag path: not a regular file")
+
+    bag_root = os.environ.get("DATAPILOT_BAG_ROOT")
+    if bag_root and not _is_within(real, bag_root):
+        raise ValueError("invalid bag path: outside the allowed bag root")
+
+    return real
+
+
 # High-Fidelity Mock Datasets for Demo Runs
 DEMO_DATASETS = {
     "lidar_failure.mcap": {
@@ -392,6 +446,13 @@ class IngestionParser:
         resolved = _resolve_path(filepath)
 
         if os.path.exists(resolved):
+            # Containment check (issue #80): an existing file must be a real bag
+            # under any configured root before we open it. Raises ValueError for
+            # wrong extension / non-regular files / paths outside DATAPILOT_BAG_ROOT.
+            # A *missing* file is not validated here — it falls through to the
+            # generic fallback below (preserves demo/test behaviour).
+            resolved = _validate_bag_path(resolved)
+
             # Try the dedicated mcap-parser service first.
             result = await self._parse_via_service(resolved)
             if result is not None:
