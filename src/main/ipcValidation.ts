@@ -221,7 +221,12 @@ export function isPathWithinRoot(
   root: string,
   separator: string,
 ): boolean {
-  if (child === root) return true;
-  const rootWithSep = root.endsWith(separator) ? root : root + separator;
-  return child.startsWith(rootWithSep);
+  // Windows paths are case-insensitive; compare case-folded there so casing
+  // differences (e.g. drive letters) don't reject a legitimately-nested path.
+  const ci = process.platform === "win32";
+  const c = ci ? child.toLowerCase() : child;
+  const r = ci ? root.toLowerCase() : root;
+  if (c === r) return true;
+  const rootWithSep = r.endsWith(separator) ? r : r + separator;
+  return c.startsWith(rootWithSep);
 }

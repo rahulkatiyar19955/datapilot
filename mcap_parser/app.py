@@ -34,10 +34,12 @@ def _is_within(child: str, parent: str) -> bool:
     Uses os.path.commonpath (not str.startswith) so that e.g. ``/bags-evil`` is
     NOT treated as living under ``/bags``.
     """
-    parent_real = os.path.realpath(parent)
-    child_real = os.path.realpath(child)
+    # normcase folds case + separators on case-insensitive platforms (Windows),
+    # so a valid path isn't rejected over casing differences; it's a no-op on POSIX.
+    parent_real = os.path.normcase(os.path.realpath(parent))
+    child_real = os.path.normcase(os.path.realpath(child))
     try:
-        return os.path.commonpath([parent_real, child_real]) == parent_real
+        return os.path.normcase(os.path.commonpath([parent_real, child_real])) == parent_real
     except ValueError:
         # Different drives / mix of absolute+relative → not contained.
         return False

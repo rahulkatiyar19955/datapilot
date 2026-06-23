@@ -14,6 +14,7 @@ rotating log file at ``${DATAPILOT_DATA_DIR}/llm_prompts.log``:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import logging.handlers
@@ -88,7 +89,8 @@ class LoggingLLMClient:
         logging_on = prompt_logging_enabled()
 
         if logging_on:
-            _write({
+            # Offload the synchronous file write so it never blocks the event loop.
+            await asyncio.to_thread(_write, {
                 "direction": "request",
                 "provider": self.provider,
                 "model": self.model_id,
@@ -109,7 +111,7 @@ class LoggingLLMClient:
 
         if not stream:
             if logging_on:
-                _write({
+                await asyncio.to_thread(_write, {
                     "direction": "response",
                     "provider": self.provider,
                     "model": self.model_id,
@@ -141,7 +143,7 @@ class LoggingLLMClient:
             if chunk.get("finish_reason"):
                 finish_reason = chunk["finish_reason"]
             yield chunk
-        _write({
+        await asyncio.to_thread(_write, {
             "direction": "response",
             "provider": self.provider,
             "model": self.model_id,
