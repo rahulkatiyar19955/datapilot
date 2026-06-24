@@ -107,7 +107,7 @@ def _filter_uncited(findings: list[Finding], valid_log_ids: set[str]) -> tuple[l
     kept: list[Finding] = []
     dropped: list[str] = []
     for f in findings:
-        ids = f.get("log_ids", [])
+        ids = f.get("log_ids") or []
         sev = f.get("sev", "info")
         if any(lid in valid_log_ids for lid in ids):
             kept.append(f)

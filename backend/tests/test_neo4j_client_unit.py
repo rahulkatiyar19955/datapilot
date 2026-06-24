@@ -176,6 +176,12 @@ class TestWriteDiagnostics:
         # Statement 2: link to sensors via MERGE (idempotent, separate MATCH).
         assert "[:REPORTS_ON]" in link_query
         assert "MERGE (d)-[:REPORTS_ON]->(sen)" in link_query
+        # The DiagnosticStatus node is reached by traversing HAS_DIAGNOSTIC from
+        # the already-bound Session, NOT by a global label scan on its id —
+        # there is no index on DiagnosticStatus(id|session_id), so a bare
+        # `MATCH (d:DiagnosticStatus {id: ...})` would scan every diagnostic.
+        assert "(s)-[:HAS_DIAGNOSTIC]->(d:DiagnosticStatus {id: diag_data.id})" in link_query
+        assert "MATCH (d:DiagnosticStatus {id: diag_data.id, session_id: $session_id})" not in link_query
         # #75: the loose CONTAINS over-matched (sensor `imu` ⊂ `minimum_voltage`).
         # The corrected query must NOT use CONTAINS — matching is exact now.
         assert "CONTAINS" not in create_query

@@ -141,10 +141,15 @@ class Neo4jClient:
         CREATE (s)-[:HAS_DIAGNOSTIC]->(d)
         """
         # Link each diagnostic to its sensor using EXACT matches only.
+        # Reach the DiagnosticStatus by traversing HAS_DIAGNOSTIC from the
+        # already-bound Session rather than a global `MATCH (d:DiagnosticStatus
+        # {id, session_id})`: there is no index on DiagnosticStatus(id) or
+        # (session_id), so the bare match would full-scan every diagnostic node.
+        # The traversal scopes the search to this session's subgraph.
         link_query = """
         MATCH (s:Session {id: $session_id})
         UNWIND $diagnostics_list AS diag_data
-        MATCH (d:DiagnosticStatus {id: diag_data.id, session_id: $session_id})
+        MATCH (s)-[:HAS_DIAGNOSTIC]->(d:DiagnosticStatus {id: diag_data.id})
         MATCH (s)-[:HAS_SENSOR]->(sen:Sensor)
         WHERE sen.topic = diag_data.topic
            OR sen.name = diag_data.hardware_id

@@ -160,6 +160,19 @@ def test_filter_missing_log_ids_key_treated_as_empty_for_info():
     assert dropped == []
 
 
+def test_filter_null_log_ids_treated_as_empty():
+    """An explicit ``"log_ids": null`` in an LLM payload must not crash the
+    severity-gate. It is treated identically to a missing/empty list: kept for
+    nominal info/success, dropped for critical/warning."""
+    findings = [
+        {"sev": "info", "text": "nominal summary", "log_ids": None},
+        {"sev": "critical", "text": "uncited null crit", "log_ids": None},
+    ]
+    kept, dropped = _filter_uncited(findings, valid_log_ids=set())
+    assert [f["text"] for f in kept] == ["nominal summary"]
+    assert dropped == ["uncited null crit"]
+
+
 # ── _resolve_citations (mocked Neo4j) ────────────────────────────────────────
 
 
