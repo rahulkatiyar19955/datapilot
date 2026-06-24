@@ -19,5 +19,9 @@ class Settings(BaseSettings):
     ollama_host: str = "http://host.docker.internal:11434"
     default_provider: Optional[str] = None
     default_model: Optional[str] = None
+    # Path (inside the container) to a JSON {provider: key} secret file the
+    # Electron main process bind-mounts read-only. Read at startup and on
+    # /settings/reload-secrets so API keys never arrive via Env or HTTP (#39/#32).
+    datapilot_secrets_file: Optional[str] = None
 
 settings = Settings()

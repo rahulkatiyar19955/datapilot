@@ -7,6 +7,13 @@ import path from "path";
 import http from "http";
 import yaml from "yaml";
 import type { DockerStatus, DockerErrorCode } from "@shared/ipc";
+import { validateDockerSocket } from "./ipcValidation";
+import {
+  decodeSecretBlob,
+  serializeSecretsFile,
+  SECRET_PROVIDERS,
+  type SecretCrypto,
+} from "./secrets";
 
 const execAsync = promisify(exec);
 
@@ -35,31 +42,140 @@ class DockerOrchestrator {
     }
   }
 
+  private getCrypto(): SecretCrypto {
+    return {
+      isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+      encryptString: (plaintext: string) =>
+        safeStorage.encryptString(plaintext),
+      decryptString: (encrypted: Buffer) =>
+        safeStorage.decryptString(encrypted),
+    };
+  }
+
   private getSecureKey(key: string): string | null {
     const settings = this.getSettings();
-    const encryptedValue = settings[`secure_${key}`];
-    if (!encryptedValue) return null;
+    const blob = settings[`secure_${key}`];
+    if (typeof blob !== "string" || !blob) return null;
     try {
-      if (safeStorage.isEncryptionAvailable()) {
-        return safeStorage.decryptString(Buffer.from(encryptedValue, "base64"));
-      } else {
-        return Buffer.from(encryptedValue, "base64").toString("utf-8");
-      }
-    } catch (err) {
-      console.error(`Failed to decrypt key in orchestrator: ${key}`, err);
+      return decodeSecretBlob(blob, this.getCrypto());
+    } catch {
+      // Never log the key or the underlying error (may echo the value).
+      console.error(`Failed to decrypt stored key: ${key}`);
       return null;
     }
   }
 
   private initDocker() {
-    const settings = this.getSettings();
-    const customSocket = settings["docker_socket"];
-    this.socketPath =
-      customSocket ||
-      (process.platform === "win32"
-        ? "\\\\.\\pipe\\docker_engine"
-        : "/var/run/docker.sock");
+    const isWindows = process.platform === "win32";
+    const platformDefault = isWindows
+      ? "\\\\.\\pipe\\docker_engine"
+      : "/var/run/docker.sock";
+
+    // Issue #31: the Docker socket is a root-equivalent capability, so it is NOT
+    // read from renderer-writable settings (that key is rejected by
+    // `assertSettableKey`). The only override is a trusted env var, and even
+    // that is validated so a bad value cannot repoint the daemon connection.
+    const home = app.getPath("home");
+    const allowedDirs = isWindows
+      ? []
+      : [
+          "/var/run",
+          "/run",
+          path.join(home, ".docker"),
+          path.join(home, ".docker", "run"),
+          path.join(home, ".colima", "default"),
+          path.join(home, ".rd"),
+          path.join(home, ".lima", "default", "sock"),
+        ];
+    try {
+      this.socketPath = validateDockerSocket(
+        process.env.DATAPILOT_DOCKER_SOCKET,
+        { platformDefault, isWindows, allowedDirs },
+      );
+    } catch (err) {
+      console.error(
+        "Ignoring invalid DATAPILOT_DOCKER_SOCKET; using platform default:",
+        err instanceof Error ? err.message : err,
+      );
+      this.socketPath = platformDefault;
+    }
     this.docker = new Docker({ socketPath: this.socketPath });
+  }
+
+  // --- API key secret file (issues #39, #32) ------------------------------
+  //
+  // Decrypted keys are written to a mode-0600 host file that is bind-mounted
+  // read-only into the backend container, instead of being injected via `Env`
+  // (readable through `docker inspect`) or POSTed from the renderer over plain
+  // HTTP. The backend reads this path at startup and on /settings/reload-secrets.
+
+  private static readonly SECRETS_CONTAINER_PATH =
+    "/run/datapilot/secrets/backend-keys.json";
+
+  private getSecretsHostPath(): string {
+    return path.join(app.getPath("userData"), "secrets", "backend-keys.json");
+  }
+
+  /**
+   * Writes the current provider keys (from safeStorage) to the mode-0600 host
+   * secret file and returns its path. Always writes a file (possibly `{}`) so
+   * the read-only bind mount has a real file to target. Never logs key values.
+   */
+  private writeSecretsFile(): string {
+    const keys: Record<string, string | null> = {};
+    for (const provider of SECRET_PROVIDERS) {
+      keys[provider] = this.getSecureKey(provider);
+    }
+    const hostPath = this.getSecretsHostPath();
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(hostPath, serializeSecretsFile(keys), { mode: 0o600 });
+    try {
+      // writeFileSync only applies `mode` on creation; enforce on rewrite too.
+      fs.chmodSync(hostPath, 0o600);
+    } catch {
+      /* best-effort on filesystems without POSIX modes (e.g. Windows) */
+    }
+    return hostPath;
+  }
+
+  /**
+   * Rewrites the secret file and asks a running backend to re-read it, so a key
+   * the user changes mid-session takes effect without a restart — and without
+   * the key ever crossing the renderer→HTTP boundary. Best-effort.
+   */
+  public async syncSecrets(): Promise<void> {
+    try {
+      this.writeSecretsFile();
+    } catch (err) {
+      console.error("Failed to write backend secret file:", err);
+      return;
+    }
+    await this.pingReloadSecrets();
+  }
+
+  private pingReloadSecrets(): Promise<void> {
+    return new Promise((resolve) => {
+      const req = http.request(
+        {
+          host: "127.0.0.1",
+          port: 8000,
+          path: "/api/settings/reload-secrets",
+          method: "POST",
+          timeout: 3000,
+        },
+        (res) => {
+          res.resume();
+          res.on("end", resolve);
+          res.on("error", () => resolve());
+        },
+      );
+      req.on("error", () => resolve());
+      req.on("timeout", () => {
+        req.destroy();
+        resolve();
+      });
+      req.end();
+    });
   }
 
   private resolveHostPath(inputPath: string): string {
@@ -629,6 +745,11 @@ class DockerOrchestrator {
         step: "Starting FastAPI Backend container…",
       });
 
+      // Issues #39 / #32: deliver API keys via a bind-mounted, mode-0600 secret
+      // file the backend reads at startup — NOT via `Env` (readable through
+      // `docker inspect` / /proc/<pid>/environ) and NOT via a renderer→HTTP POST.
+      const secretsHostPath = this.writeSecretsFile();
+
       const backendEnv = [
         "NEO4J_URI=bolt://datapilot-neo4j:7687",
         "NEO4J_USER=neo4j",
@@ -639,24 +760,9 @@ class DockerOrchestrator {
         // in_process: tools are called directly in the backend process — no
         // subprocess overhead. Workers still run to serve their /health endpoints.
         "DATAPILOT_MCP_TRANSPORT=in_process",
+        // Path (not a secret) the backend reads keys from.
+        `DATAPILOT_SECRETS_FILE=${DockerOrchestrator.SECRETS_CONTAINER_PATH}`,
       ];
-
-      const anthropicKey = this.getSecureKey("anthropic");
-      if (anthropicKey) {
-        backendEnv.push(`ANTHROPIC_API_KEY=${anthropicKey}`);
-      }
-      const openaiKey = this.getSecureKey("openai");
-      if (openaiKey) {
-        backendEnv.push(`OPENAI_API_KEY=${openaiKey}`);
-      }
-      const geminiKey = this.getSecureKey("google");
-      if (geminiKey) {
-        backendEnv.push(`GEMINI_API_KEY=${geminiKey}`);
-      }
-      const nvidiaKey = this.getSecureKey("nvidia");
-      if (nvidiaKey) {
-        backendEnv.push(`NVIDIA_API_KEY=${nvidiaKey}`);
-      }
 
       await this.startContainer("backend", {
         Image: this.resolveImageTag("ghcr.io/rahulkatiyar19955/datapilot-backend:latest"),
@@ -668,6 +774,8 @@ class DockerOrchestrator {
           Binds: [
             `${dataMountDir}:/data`,
             bagBind, // Read-only mount of the scoped bags directory (#33)
+            // Read-only secret file (#39/#32).
+            `${secretsHostPath}:${DockerOrchestrator.SECRETS_CONTAINER_PATH}:ro`,
           ],
           NetworkMode: "datapilot-net",
         },

@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
+import json
 import logging
 import os
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -245,6 +246,55 @@ def _apply_key_update(provider: str, key: Optional[str]) -> None:
 async def update_key(payload: KeyUpdateRequest):
     _apply_key_update(payload.provider, payload.key.strip())
     return {"status": "success", "message": f"Updated API key for {payload.provider.lower()}"}
+
+
+def load_secrets_file(path: str) -> int:
+    """Load provider API keys from a JSON secret file and apply them.
+
+    The Electron main process writes a mode-0600 `{provider: key}` JSON file and
+    bind-mounts it read-only into this container (issues #39, #32) instead of
+    injecting keys via `Env` (visible to `docker inspect`) or POSTing them from
+    the renderer over plain HTTP. Each key is applied through `_apply_key_update`
+    so the router cache is invalidated consistently.
+
+    Best-effort: a missing, unreadable, malformed, or non-object file applies
+    nothing and never raises. Returns the number of keys applied.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(data, dict):
+        return 0
+
+    applied = 0
+    for provider, key in data.items():
+        if not isinstance(provider, str) or not isinstance(key, str):
+            continue
+        trimmed = key.strip()
+        if not trimmed:
+            continue
+        _apply_key_update(provider, trimmed)
+        applied += 1
+    return applied
+
+
+@router.post("/reload-secrets")
+async def reload_secrets():
+    """Re-read the bind-mounted secret file (no secret crosses the wire).
+
+    The main-process orchestrator rewrites the secret file when the user changes
+    a key, then calls this endpoint so the running backend picks up the change
+    without the key ever traversing the renderer->HTTP path (issue #39).
+    """
+    from app.config import settings
+
+    path = settings.datapilot_secrets_file
+    if not path:
+        return {"status": "skipped", "applied": 0}
+    applied = await asyncio.to_thread(load_secrets_file, path)
+    return {"status": "success", "applied": applied}
 
 
 # ---------------------------------------------------------------------------
