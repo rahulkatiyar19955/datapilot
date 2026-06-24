@@ -17,6 +17,7 @@ from typing import Any
 
 from app.agent.budget import estimate_cost_usd
 from app.agent.state import (
+    MAX_REPLANS,
     AuditEvent,
     CausalStep,
     ChatMessageEnvelope,
@@ -33,19 +34,19 @@ logger = logging.getLogger(__name__)
 PROMPT_PATH = Path(__file__).parent / "prompts" / "composer.md"
 
 
-def _collect_findings(state: GraphState) -> tuple[list[Finding], list[str]]:
+def _collect_findings(state: GraphState) -> list[Finding]:
+    """Aggregate findings across specialists, verbatim.
+
+    No rejection happens here — severity-gated citation grounding is the job of
+    `_filter_uncited()` below (issue #50). Non-dict entries are skipped.
+    """
     findings: list[Finding] = []
-    dropped: list[str] = []
     for spec_result in (state.get("specialist_outputs") or {}).values():
         for f in spec_result.get("findings", []):
             if not isinstance(f, dict):
                 continue
-            # Keep findings even when log_ids is empty — "no issues found" findings
-            # are valid summary observations that don't need a specific log citation.
-            # _filter_uncited() below handles findings that DO have log_ids but
-            # reference IDs that don't exist in Neo4j.
             findings.append(f)  # type: ignore[arg-type]
-    return findings, dropped
+    return findings
 
 
 def _collect_causal(state: GraphState) -> list[CausalStep]:
@@ -85,20 +86,33 @@ def _resolve_citations(session_id: str, findings: list[Finding]) -> list[Citatio
     ]
 
 
-def _filter_uncited(findings: list[Finding], valid_log_ids: set[str]) -> tuple[list[Finding], list[str]]:
-    """Drop findings whose log_ids are non-empty but NONE resolve in Neo4j.
+# Severities that assert a concrete defect and therefore MUST be grounded in at
+# least one resolvable log_id (the anti-hallucination contract, AGENT.md
+# "LLM Output & Grounding"). info/success findings are nominal summary
+# observations and may stand without a citation.
+_GROUNDING_REQUIRED_SEVS = frozenset({"critical", "warning"})
 
-    Findings with an empty log_ids list are summary/nominal observations
-    (e.g. "No anomalies detected") — these are always kept.
+
+def _filter_uncited(findings: list[Finding], valid_log_ids: set[str]) -> tuple[list[Finding], list[str]]:
+    """Enforce severity-gated citation grounding (issue #50).
+
+    Rules:
+      - A finding with ≥1 log_id that resolves in Neo4j is always kept.
+      - A finding whose log_ids are non-empty but NONE resolve is dropped.
+      - A finding with empty/missing log_ids is kept ONLY when its severity is
+        nominal (info/success). For critical/warning the empty-citation
+        allowance is removed: high-severity claims with no resolvable log_id are
+        dropped, since uncited findings are rejected by the Composer.
     """
     kept: list[Finding] = []
     dropped: list[str] = []
     for f in findings:
-        ids = f.get("log_ids", [])
-        if not ids:
-            # Summary finding — no specific log event to cite; always keep.
+        ids = f.get("log_ids") or []
+        sev = f.get("sev", "info")
+        if any(lid in valid_log_ids for lid in ids):
             kept.append(f)
-        elif any(lid in valid_log_ids for lid in ids):
+        elif not ids and sev not in _GROUNDING_REQUIRED_SEVS:
+            # Nominal summary observation (e.g. "No anomalies detected").
             kept.append(f)
         else:
             dropped.append(f.get("text", "")[:60])
@@ -111,14 +125,13 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
     audit: list[AuditEvent] = []
 
     # 1. Gather findings + causal chain across specialists.
-    findings, uncited = _collect_findings(state)
+    findings = _collect_findings(state)
     causal = _collect_causal(state)
 
     # 2. Resolve citations in Neo4j and filter findings whose log_ids vanished.
     citations = _resolve_citations(session_id, findings)
     valid_log_ids = {c["log_id"] for c in citations}
-    findings, more_uncited = _filter_uncited(findings, valid_log_ids)
-    uncited.extend(more_uncited)
+    findings, uncited = _filter_uncited(findings, valid_log_ids)
     if uncited:
         audit.append({
             "step_kind": "compose",
@@ -167,6 +180,14 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
         est_cost_usd=estimate_cost_usd(full_audit),
     )
 
+    # `partial` is set when the turn could not fully resolve: either the replan
+    # cap was exhausted (replan_count reached MAX_REPLANS) or the replan node
+    # explicitly forced a compose on overflow (issues #53/#54). All three
+    # thresholds (route_after_dispatch, replan_node, here) align on MAX_REPLANS.
+    partial = bool(
+        state.get("force_compose")
+        or int(state.get("replan_count", 0) or 0) >= MAX_REPLANS
+    )
     envelope: ChatMessageEnvelope = ChatMessageEnvelope(
         response=response_text,
         plan=list(state.get("plan") or []),
@@ -175,7 +196,7 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
         audit_trail=full_audit,
         citations=citations,
         usage=usage,
-        partial=bool(state.get("replan_count", 0) > 5),
+        partial=partial,
     )
 
     return {"final": envelope, "audit_trail": audit}
