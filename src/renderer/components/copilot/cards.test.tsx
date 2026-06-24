@@ -227,13 +227,12 @@ describe("ChatMessage", () => {
   });
 });
 
-describe("ChatMessage accessibility characterization (issue #49)", () => {
-  // NOTE: issue #49 — the assistant action buttons use a raw `.btn sm` class
-  // and rely on their visible text for an accessible name (they are NOT
-  // icon-only). They carry no explicit aria-label. This test characterizes
-  // that the accessible name comes solely from the label text; it does not
-  // assert any aria-label is present.
-  it("action buttons derive their accessible name from visible label text", () => {
+describe("ChatMessage accessibility (issue #49)", () => {
+  // issue #49 — the assistant action buttons carry visible label text, so they
+  // already expose a non-empty accessible name and do NOT need an extra
+  // aria-label (which would only duplicate the visible text). This asserts the
+  // correct accessible behavior: the name comes from the visible label.
+  it("action buttons expose an accessible name from their visible label text", () => {
     const msg: ChatMessageType = {
       id: "a7",
       role: "assistant",
@@ -242,7 +241,8 @@ describe("ChatMessage accessibility characterization (issue #49)", () => {
     };
     render(<ChatMessage msg={msg} />);
     const btn = screen.getByRole("button", { name: /Open Map/ });
-    expect(btn).not.toHaveAttribute("aria-label");
+    // Accessible name is non-empty and sourced from the visible label.
+    expect(btn).toHaveAccessibleName(/Open Map/);
     expect(within(btn).getByText("Open Map")).toBeInTheDocument();
   });
 });

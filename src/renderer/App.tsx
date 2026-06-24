@@ -6,7 +6,6 @@ import { Agents } from "./screens/Agents";
 import { Settings } from "./screens/Settings";
 import { Icon } from "./components/Icon";
 import { useTheme } from "./hooks/useTheme";
-import { useGlobalShortcut } from "./hooks/useGlobalShortcut";
 import { useUIStore } from "./stores/ui";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
@@ -39,8 +38,6 @@ export function App(): JSX.Element {
   const { meta: sessionMeta, pendingPath, setPendingPath } = useSessionStore();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const syncKeysToBackend = useSettingsStore((s) => s.syncKeysToBackend);
-
-  useGlobalShortcut();
 
   // Initial Docker status + version + subscribe to status changes.
   useEffect(() => {

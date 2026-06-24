@@ -79,9 +79,12 @@ async def _probe_health(client: httpx.AsyncClient, worker: str) -> dict[str, Any
         }
     except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
         return {"status": "disconnected", "tools": 0, "last_error": None}
-    except Exception as exc:  # pragma: no cover — defensive
-        logger.warning("health probe failed for %s: %s", worker, exc)
-        return {"status": "error", "tools": 0, "last_error": str(exc)}
+    except Exception as exc:
+        # Never surface the raw exception text — it can embed internal hosts /
+        # ports / paths (issue #63). Log the type server-side; return a fixed
+        # client-facing string.
+        logger.warning("health probe failed for %s: %s", worker, type(exc).__name__)
+        return {"status": "error", "tools": 0, "last_error": "probe failed"}
 
 
 @router.get("/servers")

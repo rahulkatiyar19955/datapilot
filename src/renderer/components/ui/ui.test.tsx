@@ -80,17 +80,24 @@ describe("Button", () => {
     expect(ref.current).toBeInstanceOf(HTMLButtonElement);
   });
 
-  // NOTE: issue #49 — an icon-only Button does NOT auto-derive an aria-label.
-  // The component leaves accessibility to the caller, so without children or
-  // an explicit aria-label the icon button has an EMPTY accessible name.
-  // This characterizes current behavior; it is not a fix.
-  it("icon-only Button has no accessible name unless caller supplies one (issue #49)", () => {
-    render(<Button icon data-testid="icon-only" />);
+  // issue #49 — an icon-only Button must expose an accessible name. When the
+  // caller supplies a `title` (the common tooltip pattern) but no children or
+  // explicit aria-label, the Button derives `aria-label` from `title` so the
+  // icon button is reachable by assistive tech.
+  it("icon-only Button derives aria-label from title when none is given (issue #49)", () => {
+    render(<Button icon title="Refresh" data-testid="icon-only" />);
     const btn = screen.getByTestId("icon-only");
     expect(btn).toHaveClass("icon");
-    expect(btn).not.toHaveAttribute("aria-label");
-    // confirm it is not queryable by an accessible name
-    expect(screen.queryByRole("button", { name: /.+/ })).toBeNull();
+    expect(btn).toHaveAttribute("aria-label", "Refresh");
+    // queryable by its accessible name
+    expect(
+      screen.getByRole("button", { name: "Refresh" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not override an explicit aria-label with title (issue #49)", () => {
+    render(<Button icon aria-label="Close" title="tooltip" />);
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
   });
 
   it("can be given an aria-label by the caller for icon-only usage", () => {

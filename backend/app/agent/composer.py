@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.agent.budget import estimate_cost_usd
+from app.agent.budget import estimate_cost_usd, per_turn_cap_exceeded
 from app.agent.state import (
     AuditEvent,
     CausalStep,
@@ -167,6 +167,10 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
         est_cost_usd=estimate_cost_usd(full_audit),
     )
 
+    # Mark the turn partial on replan overflow OR when the per-turn token budget
+    # was exhausted (issue #42) — in both cases the answer may be incomplete.
+    partial = bool(state.get("replan_count", 0) > 5) or per_turn_cap_exceeded(full_audit)
+
     envelope: ChatMessageEnvelope = ChatMessageEnvelope(
         response=response_text,
         plan=list(state.get("plan") or []),
@@ -175,7 +179,7 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
         audit_trail=full_audit,
         citations=citations,
         usage=usage,
-        partial=bool(state.get("replan_count", 0) > 5),
+        partial=partial,
     )
 
     return {"final": envelope, "audit_trail": audit}

@@ -331,18 +331,45 @@ DEMO_DATASETS = {
 }
 
 def _seconds_from_log_t(t_str: str) -> float:
-    """Parse 'HH:MM:SS.mmm' into seconds. Tolerates plain floats too."""
-    try:
-        parts = t_str.split(":")
-        if len(parts) == 3:
-            h, m, s = parts
-            return float(h) * 3600 + float(m) * 60 + float(s)
-    except Exception:
-        pass
-    try:
-        return float(t_str)
-    except Exception:
-        return 0.0
+    """Parse a ``str(timedelta)`` display string into float seconds.
+
+    Delegates to the canonical parser in ``causal_rules`` so both code paths
+    handle the ``"N day(s), H:MM:SS"`` form identically (issue #70).
+    """
+    from app.services.causal_rules import log_time_to_seconds
+    return log_time_to_seconds(t_str)
+
+
+def scope_log_ids(session_id: str, parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Make every Log id globally unique by prefixing it with the session id.
+
+    Log numbering (``l_1``, ``l_2``, …) is only unique *within* a single bag, so
+    once a second session is ingested the ids collide across sessions and every
+    ``MATCH (:Log {id})`` fans causal/citation edges out to unrelated runs
+    (issue #68). Prefixing with the owning session id makes identity globally
+    unique, which the uniqueness constraint in ``init_indexes`` then enforces.
+
+    Mutates ``parsed`` in place and also remaps any ``anomalies[].source_log_id``
+    so the ``[:DERIVED_FROM]`` links stay consistent. Idempotent: ids already
+    carrying the prefix are left untouched.
+    """
+    prefix = f"{session_id}:"
+    remap: dict[str, str] = {}
+    for log in parsed.get("logs", []) or []:
+        old = log.get("id")
+        if old is None:
+            continue
+        old = str(old)
+        if old.startswith(prefix):
+            continue
+        new = f"{prefix}{old}"
+        remap[old] = new
+        log["id"] = new
+    for anomaly in parsed.get("anomalies", []) or []:
+        src = anomaly.get("source_log_id")
+        if src is not None and str(src) in remap:
+            anomaly["source_log_id"] = remap[str(src)]
+    return parsed
 
 
 def _derive_anomalies(timeline_events: List[Dict[str, Any]], logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

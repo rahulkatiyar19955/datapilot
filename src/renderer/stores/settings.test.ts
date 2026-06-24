@@ -142,6 +142,37 @@ describe("useSettingsStore", () => {
       expect(spy).toHaveBeenCalledWith("--color-accent", crimson.color);
     });
 
+    it("issues the independent settings/keychain reads in parallel, not serially", async () => {
+      // Instrument settings.get + keychain.get to record peak concurrency:
+      // each call holds a microtask-deferred resolution so genuinely parallel
+      // reads overlap, while serial awaits would never exceed concurrency 1.
+      let inFlight = 0;
+      let peak = 0;
+      const defer = () =>
+        new Promise<null>((resolve) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          // Resolve on a later microtask so other queued reads can start first.
+          Promise.resolve()
+            .then(() => Promise.resolve())
+            .then(() => {
+              inFlight -= 1;
+              resolve(null);
+            });
+        });
+
+      installDatapilotStub({
+        settings: { get: vi.fn(defer), set: vi.fn(async () => {}) },
+        keychain: { get: vi.fn(defer), set: vi.fn(async () => {}) },
+      });
+
+      await useSettingsStore.getState().loadSettings();
+
+      // 20 settings reads + 6 keychain reads run concurrently; serial awaits
+      // would cap peak at 1. Require substantial overlap.
+      expect(peak).toBeGreaterThan(5);
+    });
+
     it("recovers and clears the loading flag if a datapilot call throws", async () => {
       installDatapilotStub({
         app: {

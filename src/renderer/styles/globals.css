@@ -67,6 +67,17 @@
   --shadow-lg:
     0 12px 24px -4px oklch(0 0 0 / 0.5), 0 4px 12px -2px oklch(0 0 0 / 0.4);
 
+  /* Foreground for filled accent/danger surfaces (replaces raw #ffffff). */
+  --color-on-accent: oklch(1 0 0);
+
+  /* Inset progress-track shadow (replaces raw rgba(0,0,0,0.2)). */
+  --color-shadow-inset: inset 0 1px 2px oklch(0 0 0 / 0.2);
+
+  /* macOS traffic-light dots (replaces raw hexes #ff5f57/#febc2e/#28c840). */
+  --color-traffic-red: oklch(0.66 0.2 25);
+  --color-traffic-yellow: oklch(0.81 0.15 80);
+  --color-traffic-green: oklch(0.75 0.2 145);
+
   --font-ui: "Inter", -apple-system, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
 }
@@ -221,13 +232,13 @@ body {
 }
 
 .traffic .red {
-  background: #ff5f57;
+  background: var(--color-traffic-red);
 }
 .traffic .yellow {
-  background: #febc2e;
+  background: var(--color-traffic-yellow);
 }
 .traffic .green {
-  background: #28c840;
+  background: var(--color-traffic-green);
 }
 
 .title {
@@ -493,7 +504,7 @@ button.pill:disabled {
 .btn.primary {
   background: var(--color-accent);
   border-color: var(--color-accent-dim);
-  color: #ffffff;
+  color: var(--color-on-accent);
 }
 
 .btn.primary:hover {
@@ -503,7 +514,7 @@ button.pill:disabled {
 .btn.danger {
   background: var(--color-danger);
   border-color: var(--color-danger);
-  color: #ffffff;
+  color: var(--color-on-accent);
 }
 
 .btn.danger:hover {

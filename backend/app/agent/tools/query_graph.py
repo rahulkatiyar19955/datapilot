@@ -22,8 +22,11 @@ $session_id in their MATCH/WHERE clause to scope results to this session.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
+
+from neo4j import Query
 
 from app.services.neo4j_client import neo4j_client
 
@@ -82,11 +85,37 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     },
 }
 
-# Write-operation keywords that must never appear in a query submitted to this tool.
+# Write/abuse constructs that must never appear in a query submitted to this tool.
+# This is the prompt-injection enforcement boundary, so the blocklist mirrors the
+# breadth of the sibling query_mcap tool:
+#   - write/DDL verbs: CREATE/MERGE/SET/DELETE/REMOVE/DROP/DETACH
+#   - procedure calls into the apoc / db.* / dbms.* namespaces (schema/internals
+#     enumeration, write procedures, config disclosure)
+#   - LOAD CSV (bulk file ingestion / SSRF)
+#   - CALL { ... } IN TRANSACTIONS (subquery transactions — a write/abuse vector)
+# `\b` word boundaries keep legitimate read substrings working (e.g. a property
+# named `created_at` won't match `CREATE`), while the procedure-call and
+# multi-word forms are matched explicitly.
 _WRITE_PATTERN = re.compile(
-    r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|DETACH|CALL\s+apoc\.)\b",
+    r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|DETACH"
+    r"|LOAD\s+CSV"
+    r"|IN\s+TRANSACTIONS"
+    r"|CALL\s+apoc\."
+    r"|CALL\s+db\."
+    r"|CALL\s+dbms\.)\b",
     re.IGNORECASE,
 )
+
+# Server-side per-query transaction timeout (seconds). Configurable via env var
+# with a safe default so a single read can't run past the latency budget; the
+# driver aborts the transaction server-side when this elapses.
+def _query_timeout_s() -> float:
+    raw = os.environ.get("QUERY_GRAPH_TIMEOUT_S", "10")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 10.0
+    return value if value > 0 else 10.0
 
 
 def run(args: dict[str, Any]) -> dict[str, Any]:
@@ -103,7 +132,11 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
             "ok": False,
             "error": {
                 "code": "write_blocked",
-                "message": "Only read-only Cypher is allowed. Remove CREATE/MERGE/SET/DELETE/REMOVE/DROP.",
+                "message": (
+                    "Only read-only Cypher is allowed. Remove write/DDL verbs "
+                    "(CREATE/MERGE/SET/DELETE/REMOVE/DROP/DETACH), LOAD CSV, "
+                    "CALL { ... } IN TRANSACTIONS, and apoc./db./dbms. procedure calls."
+                ),
                 "retryable": False,
             },
         }
@@ -116,8 +149,19 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
 
     params = {**extra_params, "session_id": session_id}
 
+    # Wrap the text in a neo4j.Query carrying a server-side transaction timeout so
+    # a single read can't run past the latency budget — the driver aborts the
+    # transaction server-side when it elapses. str(Query) is the text, so any
+    # downstream string handling in the client still works.
+    query = Query(cypher, timeout=_query_timeout_s())
+
     try:
-        rows = neo4j_client.run_query(cypher, params)
+        rows = neo4j_client.run_query(query, params)
+        # Cap the returned rows even if the query slipped past the textual LIMIT
+        # check (literal "LIMIT" in a string, subquery, …) so a single query can
+        # never return an unbounded set into memory.
+        if isinstance(rows, list) and len(rows) > limit:
+            rows = rows[:limit]
         return {"ok": True, "result": rows}
     except Exception as exc:
         return {

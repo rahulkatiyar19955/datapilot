@@ -497,6 +497,7 @@ function KeyInput({
                 className="btn ghost icon sm"
                 onClick={() => setReveal((r) => !r)}
                 title={reveal ? "Hide" : "Reveal"}
+                aria-label={reveal ? "Hide API key" : "Reveal API key"}
                 style={{ height: 22, width: 22 }}
               >
                 {reveal ? <Icon.EyeOff size={12} /> : <Icon.Eye size={12} />}
@@ -504,6 +505,7 @@ function KeyInput({
               <button
                 className="btn ghost icon sm"
                 title="Copy"
+                aria-label="Copy API key"
                 style={{ height: 22, width: 22 }}
                 onClick={handleCopy}
               >
@@ -1143,7 +1145,10 @@ const SHORTCUTS = [
 
 function ShortcutsSection(): JSX.Element {
   return (
-    <SectionCard title="Keyboard shortcuts">
+    <SectionCard
+      title="Keyboard shortcuts"
+      hint="Coming soon — these shortcuts are not wired up yet."
+    >
       <div
         style={{
           display: "grid",
@@ -1221,9 +1226,7 @@ function AboutSection(): JSX.Element {
           className="mono"
           style={{ fontSize: 12.5, color: "var(--color-text-1)" }}
         >
-          {version} (build {new Date().getFullYear()}.
-          {String(new Date().getMonth() + 1).padStart(2, "0")}.
-          {String(new Date().getDate()).padStart(2, "0")})
+          {version} (build {__BUILD_DATE__.replace(/-/g, ".")})
         </span>
       </Row>
       <Row label="Update channel">

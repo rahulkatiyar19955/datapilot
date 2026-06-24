@@ -1,7 +1,5 @@
 import {
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type JSX,
@@ -215,18 +213,15 @@ export function KGraphView(): JSX.Element {
     sim.alpha(0.3).restart();
   }, [size]);
 
-  const screenToGraph = useCallback(
-    (clientX: number, clientY: number) => {
-      const rect = svgRef.current?.getBoundingClientRect();
-      const sx = clientX - (rect?.left ?? 0);
-      const sy = clientY - (rect?.top ?? 0);
-      return {
-        x: (sx - view.tx) / view.k,
-        y: (sy - view.ty) / view.k,
-      };
-    },
-    [view],
-  );
+  const screenToGraph = (clientX: number, clientY: number) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    const sx = clientX - (rect?.left ?? 0);
+    const sy = clientY - (rect?.top ?? 0);
+    return {
+      x: (sx - view.tx) / view.k,
+      y: (sy - view.ty) / view.k,
+    };
+  };
 
   // ── Interactions ────────────────────────────────────────────────────────
   const onNodePointerDown = (e: ReactPointerEvent, node: SimNode) => {
@@ -277,7 +272,7 @@ export function KGraphView(): JSX.Element {
     svgRef.current?.releasePointerCapture?.(e.pointerId);
   };
 
-  const zoomAround = useCallback((factor: number, cx: number, cy: number) => {
+  const zoomAround = (factor: number, cx: number, cy: number) => {
     setView((v) => {
       const k = Math.min(MAX_SCALE, Math.max(MIN_SCALE, v.k * factor));
       const scale = k / v.k;
@@ -287,7 +282,7 @@ export function KGraphView(): JSX.Element {
         ty: cy - (cy - v.ty) * scale,
       };
     });
-  }, []);
+  };
 
   const onWheel = (e: ReactWheelEvent) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -324,11 +319,8 @@ export function KGraphView(): JSX.Element {
     }
   };
 
-  const selectedNode = useMemo(
-    () => nodesRef.current.find((n) => n.id === selected) ?? null,
-    // re-evaluate on tick/selection changes
-    [selected, kgraph],
-  );
+  const selectedNode =
+    nodesRef.current.find((n) => n.id === selected) ?? null;
 
   if (!kgraph) {
     return (
@@ -387,6 +379,7 @@ export function KGraphView(): JSX.Element {
         <button
           className="btn ghost icon sm"
           title="Zoom in"
+          aria-label="Zoom in"
           onClick={() => zoomAround(1.2, size.w / 2, size.h / 2)}
         >
           <Icon.Plus size={13} />
@@ -394,6 +387,7 @@ export function KGraphView(): JSX.Element {
         <button
           className="btn ghost icon sm"
           title="Zoom out"
+          aria-label="Zoom out"
           onClick={() => zoomAround(0.83, size.w / 2, size.h / 2)}
         >
           <Icon.Zoom size={13} />
@@ -404,6 +398,7 @@ export function KGraphView(): JSX.Element {
         <button
           className="btn ghost icon sm"
           title="Refresh"
+          aria-label="Refresh"
           onClick={() => void refresh()}
         >
           <Icon.Refresh size={13} className={refreshing ? "spin" : undefined} />
@@ -536,6 +531,7 @@ export function KGraphView(): JSX.Element {
               <button
                 className="btn ghost icon sm"
                 title="Close"
+                aria-label="Close"
                 onClick={() => setSelected(null)}
               >
                 <Icon.X size={11} />

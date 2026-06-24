@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 export type Theme = "dark" | "light";
 
@@ -47,7 +47,7 @@ export function useTheme(): {
     applyTheme(theme);
   }, [theme]);
 
-  const setTheme = useCallback((next: Theme) => {
+  const setTheme = (next: Theme): void => {
     setThemeState(next);
     applyTheme(next);
     try {
@@ -61,11 +61,11 @@ export function useTheme(): {
     } catch {
       // bridge not available (e.g. DesignSystem rendered without preload) — fine
     }
-  }, []);
+  };
 
-  const toggle = useCallback(() => {
+  const toggle = (): void => {
     setTheme(theme === "dark" ? "light" : "dark");
-  }, [theme, setTheme]);
+  };
 
   return { theme, setTheme, toggle };
 }

@@ -19,7 +19,12 @@ class Neo4jClient:
     def init_indexes(self, embedding_dim: int = 1536):
         # Create standard index constraints
         queries = [
+            # Globally-unique Log identity (issue #68): ids are session-scoped
+            # (e.g. "<session_id>:l_1"), so a single-property uniqueness
+            # constraint (Community-compatible) stops cross-session collisions.
+            "CREATE CONSTRAINT log_id_unique IF NOT EXISTS FOR (n:Log) REQUIRE n.id IS UNIQUE",
             "CREATE INDEX log_ts_idx IF NOT EXISTS FOR (n:Log) ON (n.ts)",
+            "CREATE INDEX log_tsec_idx IF NOT EXISTS FOR (n:Log) ON (n.t_sec)",
             "CREATE INDEX log_severity_idx IF NOT EXISTS FOR (n:Log) ON (n.severity)",
             "CREATE INDEX log_node_idx IF NOT EXISTS FOR (n:Log) ON (n.node)"
         ]
@@ -157,12 +162,14 @@ class Neo4jClient:
         CREATE (l:Log {
             id: log_data.id,
             ts: log_data.t,
+            t_sec: log_data.t_sec,
             severity: log_data.sev,
             node: log_data.node,
             msg: log_data.text,
             topic: log_data.topic,
             type: log_data.type,
-            embedding: log_data.embedding
+            embedding: log_data.embedding,
+            session_id: $session_id
         })
         CREATE (s)-[:HAS_LOG]->(l)
         """
@@ -240,9 +247,11 @@ class Neo4jClient:
             label: a.label
         })
         CREATE (s)-[:HAS_ANOMALY]->(anomaly)
-        WITH anomaly, a
+        WITH s, anomaly, a
         WHERE a.source_log_id IS NOT NULL
-        OPTIONAL MATCH (l:Log {id: a.source_log_id})
+        // Scope the source-log match through THIS session so DERIVED_FROM can
+        // never link to a same-id log from another session (issue #68).
+        OPTIONAL MATCH (s)-[:HAS_LOG]->(l:Log {id: a.source_log_id})
         FOREACH (_ IN CASE WHEN l IS NULL THEN [] ELSE [1] END |
             CREATE (anomaly)-[:DERIVED_FROM]->(l)
         )
@@ -347,7 +356,9 @@ class Neo4jClient:
         UNWIND $facts AS fact
         MATCH (f:Fact {session_id: $session_id, text: fact.text})
         UNWIND fact.log_ids AS lid
-        MATCH (l:Log {id: lid})
+        // Resolve cited logs only within THIS session so a citation can never
+        // attach to a same-id log from another run (issue #68).
+        MATCH (:Session {id: $session_id})-[:HAS_LOG]->(l:Log {id: lid})
         MERGE (f)-[:CITES]->(l)
         """
         params = {"session_id": session_id, "facts": prepared, "turn_index": turn_index, "created_at": created_at}

@@ -18,7 +18,7 @@ from app.schemas import (
     SessionCreate, SessionResponse, TimelineEvent, TopicInfo, LogItem,
     KGraphResponse, ReplayResponse, AnomalyItem,
 )
-from app.services.parser import ingestion_parser
+from app.services.parser import ingestion_parser, scope_log_ids
 from app.services.embeddings import embedding_service
 from app.services.neo4j_client import neo4j_client
 from app.services.causal_rules import causal_rules_evaluator, log_time_to_seconds
@@ -29,6 +29,29 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 _CHECKPOINTS_DB = Path(settings.datapilot_data_dir) / "agent_checkpoints.sqlite"
+
+# Vector search over-fetch factor (issue #78). `db.index.vector.queryNodes`
+# returns only the top-k neighbours, so applying the severity filter / SKIP /
+# LIMIT *after* truncation can starve the result set when the nearest hits are
+# the wrong severity. Pull a multiple of (limit + offset) candidates so the
+# post-filter has room to work. k-NN + offset pagination is still approximate.
+VECTOR_OVERFETCH_FACTOR = 5
+
+# Lucene special characters that must be escaped before a user string is handed
+# to `db.index.fulltext.queryNodes` (issue #67) — an unescaped `+`/`-`/`(` etc.
+# can throw or be abused for an expensive query.
+_LUCENE_SPECIAL = r'+-&|!(){}[]^"~*?:\/'
+
+
+def _escape_lucene(q: str) -> str:
+    """Backslash-escape Lucene query syntax so a raw user string is treated as
+    literal text rather than a query expression (issue #67)."""
+    out = []
+    for ch in q:
+        if ch in _LUCENE_SPECIAL:
+            out.append("\\")
+        out.append(ch)
+    return "".join(out)
 
 
 async def _clear_checkpoints_for_session(session_id: str) -> None:
@@ -41,7 +64,7 @@ async def _clear_checkpoints_for_session(session_id: str) -> None:
             await db.execute("DELETE FROM checkpoint_writes WHERE thread_id = ?", (session_id,))
             await db.commit()
     except Exception as e:
-        print(f"Warning: could not clear checkpoints for {session_id}: {e}")
+        logger.warning("could not clear checkpoints for %s: %s", session_id, e)
 
 
 async def _clear_all_checkpoints() -> None:
@@ -54,7 +77,7 @@ async def _clear_all_checkpoints() -> None:
             await db.execute("DELETE FROM checkpoint_writes")
             await db.commit()
     except Exception as e:
-        print(f"Warning: could not clear all checkpoints: {e}")
+        logger.warning("could not clear all checkpoints: %s", e)
 
 
 def _basename(filepath: str) -> str:
@@ -74,7 +97,18 @@ async def run_ingestion(session_id: str, filepath: str):
         try:
             # 1. Parse ROS telemetry (via mcap-parser service, falls back to inline CDR parser)
             parsed = await ingestion_parser.parse_bag(filepath)
-            
+
+            # Make Log ids globally unique by scoping them to this session, so a
+            # second ingestion can't collide ids across sessions and corrupt
+            # causal/citation edges (issue #68). Also remaps anomaly source ids.
+            scope_log_ids(session_id, parsed)
+
+            # Stamp an absolute numeric timestamp on every log so retrieval can
+            # sort chronologically instead of lexicographically on the display
+            # string (issue #70).
+            for l in parsed.get("logs", []):
+                l["t_sec"] = log_time_to_seconds(l.get("t", "0"))
+
             # 2. Vectorize log lines (DEBUG logs stored without embedding to
             # save cost — they're rarely useful for diagnosis).
             logs = parsed.get("logs", [])
@@ -162,7 +196,7 @@ async def run_ingestion(session_id: str, filepath: str):
             record.status = "error"
             record.error_message = str(e)
             await db.commit()
-            print(f"Ingestion failed for session {session_id}: {e}")
+            logger.error("ingestion failed for session %s: %s", session_id, e, exc_info=True)
 
 @router.post("/create", status_code=202)
 async def create_session(
@@ -236,7 +270,7 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     try:
         neo4j_client.clear_session(session_id)
     except Exception as e:
-        print(f"Error clearing neo4j for session {session_id}: {e}")
+        logger.warning("error clearing neo4j for session %s: %s", session_id, e)
 
     await _clear_checkpoints_for_session(session_id)
     await db.delete(record)
@@ -248,7 +282,7 @@ async def delete_all_sessions(db: AsyncSession = Depends(get_db)):
     try:
         neo4j_client.run_query("MATCH (n) DETACH DELETE n")
     except Exception as e:
-        print(f"Error clearing neo4j: {e}")
+        logger.warning("error clearing neo4j: %s", e)
 
     await _clear_all_checkpoints()
     await db.execute(delete(SessionRecord))
@@ -309,8 +343,8 @@ async def get_logs(
     session_id: str,
     q: Optional[str] = None,
     severity: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
     res = await db.execute(select(SessionRecord).where(SessionRecord.id == session_id))
@@ -341,15 +375,20 @@ async def get_logs(
                 "session_id": session_id,
                 "query_vector": query_vector,
                 "severity": severity.upper() if severity else None,
-                "vector_limit": limit + offset,
+                # Over-fetch candidates so the post-filter (severity) + SKIP/LIMIT
+                # don't starve on wrong-severity nearest neighbours (issue #78).
+                "vector_limit": (limit + offset) * VECTOR_OVERFETCH_FACTOR,
                 "offset": offset,
                 "limit": limit,
             }
-            results = neo4j_client.run_query(cypher, params)
+            # neo4j_client is synchronous — keep it off the event loop (issue #77).
+            results = await asyncio.to_thread(neo4j_client.run_query, cypher, params)
             return [LogItem(**r) for r in results]
-        except Exception as e:
-            # Fall back to Cypher fulltext query
-            print(f"Vector search failed, using full-text search: {e}")
+        except Exception:
+            # Vector search may be unavailable (no index yet, dim mismatch, etc.)
+            # — fall back to the lexical fulltext query. Log via the module
+            # logger (not print) and never echo the raw error (issue #67).
+            logger.warning("vector search failed for session %s; using fulltext", session_id)
             cypher = """
             MATCH (s:Session {id: $session_id})
             CALL db.index.fulltext.queryNodes('log_msg_fulltext', $q)
@@ -362,12 +401,12 @@ async def get_logs(
             """
             params = {
                 "session_id": session_id,
-                "q": q,
+                "q": _escape_lucene(q),
                 "severity": severity.upper() if severity else None,
                 "offset": offset,
                 "limit": limit
             }
-            results = neo4j_client.run_query(cypher, params)
+            results = await asyncio.to_thread(neo4j_client.run_query, cypher, params)
             return [LogItem(**r) for r in results]
     else:
         # Standard retrieve sorted by timestamp
@@ -375,7 +414,7 @@ async def get_logs(
         MATCH (s:Session {id: $session_id})-[:HAS_LOG]->(l:Log)
         WHERE ($severity IS NULL OR l.severity = $severity)
         RETURN l.ts as t, l.node as node, l.severity as sev, l.msg as text, l.id as id
-        ORDER BY l.ts ASC
+        ORDER BY l.t_sec ASC, l.ts ASC
         SKIP $offset LIMIT $limit
         """
         params = {
@@ -384,7 +423,7 @@ async def get_logs(
             "offset": offset,
             "limit": limit
         }
-        results = neo4j_client.run_query(cypher, params)
+        results = await asyncio.to_thread(neo4j_client.run_query, cypher, params)
         return [LogItem(**r) for r in results]
 
 @router.get("/{session_id}/kgraph", response_model=KGraphResponse)
@@ -438,7 +477,9 @@ async def get_causal_chain(
     UNWIND nodes(path) as n
     RETURN DISTINCT n.id as id, n.ts as t, n.node as node, n.severity as sev, n.msg as text
     """
-    results = neo4j_client.run_query(cypher, {"session_id": session_id, "event_id": event_id})
+    results = await asyncio.to_thread(
+        neo4j_client.run_query, cypher, {"session_id": session_id, "event_id": event_id}
+    )
     # Sort by numeric seconds, not by string — `"10:00:00"` would otherwise
     # sort BEFORE `"2:00:00"` for unpadded hours, and beyond 99h the lexical
     # order silently diverges from chronological order.

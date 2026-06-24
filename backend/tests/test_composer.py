@@ -245,3 +245,15 @@ def test_composer_partial_flag_follows_replan_overflow(monkeypatch):
     # replan_count == 6 → partial.
     out6 = asyncio.run(composer_node(_state(replan_count=6), router=MockRouter()))
     assert out6["final"]["partial"] is True
+
+
+def test_composer_partial_when_per_turn_token_budget_exhausted(monkeypatch):
+    """Issue #42: a turn that burned the per-turn token cap is composed as
+    partial even without any replan overflow."""
+    from app.agent.state import PER_TURN_TOKEN_CAP
+    monkeypatch.setattr(composer_mod.neo4j_client, "run_query", lambda *a, **k: [])
+    big_audit = [{"step_kind": "compose", "tokens_in": PER_TURN_TOKEN_CAP, "tokens_out": 0}]
+    out = asyncio.run(
+        composer_node(_state(replan_count=0, audit_trail=big_audit), router=MockRouter())
+    )
+    assert out["final"]["partial"] is True

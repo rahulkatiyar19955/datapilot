@@ -7,12 +7,26 @@ from typing import List, Dict, Any
 from app.config import settings
 
 def log_time_to_seconds(t_str: str) -> float:
-    """Converts HH:MM:SS.mmm format string to float seconds."""
+    """Convert a ``str(timedelta)`` display string to float seconds.
+
+    Handles both the plain ``"H:MM:SS[.ffffff]"`` form and the
+    ``"N day[s], H:MM:SS"`` form that ``str(timedelta)`` emits once a duration
+    crosses 24h (issue #70 — without the day handling, long bags silently
+    collapsed every timestamp to 0.0). Bare numeric strings fall through to
+    ``float()``; anything unparseable yields 0.0.
+    """
     try:
-        parts = t_str.split(":")
+        s = t_str.strip()
+        days = 0.0
+        if "day" in s:
+            # "N day, H:MM:SS" or "N days, H:MM:SS"
+            day_part, _, rest = s.partition(",")
+            days = float(day_part.split()[0])
+            s = rest.strip()
+        parts = s.split(":")
         if len(parts) == 3:
-            h, m, s = parts
-            return float(h) * 3600.0 + float(m) * 60.0 + float(s)
+            h, m, sec = parts
+            return days * 86400.0 + float(h) * 3600.0 + float(m) * 60.0 + float(sec)
     except Exception:
         pass
     try:
@@ -70,9 +84,13 @@ class CausalRulesEvaluator:
         # Parse log times and sort logs
         logs_with_ts = []
         for log in logs:
+            # Prefer the absolute numeric key when ingestion has stamped it
+            # (issue #70); fall back to parsing the display string.
+            ts_num = log.get("t_sec")
+            ts_sec = float(ts_num) if isinstance(ts_num, (int, float)) else log_time_to_seconds(log.get("t", "0"))
             logs_with_ts.append({
                 **log,
-                "_ts_sec": log_time_to_seconds(log.get("t", "0"))
+                "_ts_sec": ts_sec,
             })
         logs_with_ts.sort(key=lambda x: x["_ts_sec"])
 

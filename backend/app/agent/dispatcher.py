@@ -11,8 +11,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.agent.budget import per_turn_cap_exceeded, total_tokens_in_audit
 from app.agent.specialists.defaults import get_specialist
-from app.agent.state import MAX_REPLANS, GraphState
+from app.agent.state import MAX_REPLANS, PER_TURN_TOKEN_CAP, GraphState
 from app.llm.router import LLMRouter
 
 logger = logging.getLogger(__name__)
@@ -48,11 +49,15 @@ async def dispatcher_node(state: GraphState, *, router: LLMRouter) -> dict[str, 
     outputs = dict(state.get("specialist_outputs") or {})
     outputs[step["specialist"]] = result
 
+    # Track the per-turn token budget so it's actually decremented (issue #42).
+    used = total_tokens_in_audit(list(state.get("audit_trail") or []) + list(audit))
+
     return {
         "plan": plan_copy,
         "plan_idx": idx + 1,
         "specialist_outputs": outputs,
         "audit_trail": audit,
+        "token_budget_remaining": max(0, PER_TURN_TOKEN_CAP - used),
     }
 
 
@@ -68,6 +73,12 @@ def route_after_dispatch(state: GraphState) -> str:
     idx = state.get("plan_idx", 0)
     outputs = state.get("specialist_outputs", {})
     replan_count = int(state.get("replan_count", 0) or 0)
+
+    # Per-turn token budget (issue #42): once the turn has burned the cap, stop
+    # dispatching/replanning and bail straight to the composer (which marks the
+    # turn partial). This overrides the replan branch below.
+    if per_turn_cap_exceeded(state.get("audit_trail", []) or []):
+        return "composer"
 
     # Inspect the most recent specialist result.
     if plan and idx > 0 and replan_count < MAX_REPLANS:

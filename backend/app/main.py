@@ -6,12 +6,33 @@ routers land in Phases 4+.
 """
 from __future__ import annotations
 
+import logging
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.auth import APITokenMiddleware
+
+logger = logging.getLogger(__name__)
+
+
+async def internal_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Global handler: return a fixed, key-free JSON shape and log the full
+    detail server-side under a correlation id (issue #63).
+
+    Raw exception strings often embed internal bolt URIs, worker hosts, and
+    absolute paths — never reflect them to the client.
+    """
+    correlation_id = uuid.uuid4().hex
+    path = getattr(getattr(request, "url", None), "path", "?")
+    logger.error("unhandled error [%s] on %s: %r", correlation_id, path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "correlation_id": correlation_id},
+    )
 from app.db_sqlite import init_db
 from app.api.sessions import router as sessions_router
 from app.api.chat import router as chat_router
@@ -83,6 +104,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Global exception handler (issue #63): sanitize any unhandled error into a
+# fixed shape so internal detail never reaches the client.
+app.add_exception_handler(Exception, internal_error_handler)
 
 # Register routers
 app.include_router(sessions_router, prefix="/api")

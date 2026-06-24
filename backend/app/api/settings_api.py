@@ -210,29 +210,41 @@ class KeyUpdateRequest(BaseModel):
     key: str
 
 
+def _apply_key_update(provider: str, key: Optional[str]) -> None:
+    """Apply a single key/setting change through one place and ALWAYS clear the
+    cached router (issue #77).
+
+    Previously only the `default_model` branch invalidated the router cache, so
+    a changed API key / provider was ignored by in-flight reads until restart.
+    Routing through this setter keeps the mutation + cache-clear consistent.
+    """
+    from app.config import settings
+    from app.llm.router import get_router
+
+    p = (provider or "").lower()
+    value = key or None
+    if p == "openai":
+        settings.openai_api_key = value
+    elif p in ("google", "gemini"):
+        settings.gemini_api_key = value
+    elif p == "anthropic":
+        settings.anthropic_api_key = value
+    elif p == "nvidia":
+        settings.nvidia_api_key = value
+    elif p == "default_provider":
+        settings.default_provider = value
+    elif p == "default_model":
+        settings.default_model = value
+
+    # Any provider/key/model change can alter routing → drop the cached router
+    # so the next turn rebuilds clients with the new settings.
+    get_router.cache_clear()
+
+
 @router.post("/keys")
 async def update_key(payload: KeyUpdateRequest):
-    from app.config import settings
-
-    provider = payload.provider.lower()
-    key = payload.key.strip()
-
-    if provider == "openai":
-        settings.openai_api_key = key or None
-    elif provider == "anthropic":
-        settings.anthropic_api_key = key or None
-    elif provider == "google" or provider == "gemini":
-        settings.gemini_api_key = key or None
-    elif provider == "nvidia":
-        settings.nvidia_api_key = key or None
-    elif provider == "default_provider":
-        settings.default_provider = key or None
-    elif provider == "default_model":
-        settings.default_model = key or None
-        from app.llm.router import get_router
-        get_router.cache_clear()
-
-    return {"status": "success", "message": f"Updated API key for {provider}"}
+    _apply_key_update(payload.provider, payload.key.strip())
+    return {"status": "success", "message": f"Updated API key for {payload.provider.lower()}"}
 
 
 # ---------------------------------------------------------------------------

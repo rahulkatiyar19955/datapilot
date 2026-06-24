@@ -101,49 +101,69 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         return val !== null && val !== "" ? parseInt(val, 10) : def;
       };
 
-      const accentColor = await getStr("accent_color", "Electric");
-      const uiDensity = await getStr("ui_density", "Comfortable");
-      const monoFreq = await getBool("mono_freq", true);
-      const telemetryUsage = await getBool("telemetry_usage", false);
-      const telemetryCrash = await getBool("telemetry_crash", true);
-      const defaultProvider = await getStr("default_provider", "google");
-      const defaultModel = await getStr("default_model", "gemini-3.1-flash-lite");
-      const embeddingModel = await getStr(
-        "embedding_model",
-        "voyage-3 (Anthropic)",
-      );
-      const dockerSocket = await getStr("docker_socket", defaultSocket);
-      const tlsCertPath = await getStr("tls_cert_path", "");
-      const defaultRosImage = await getStr(
-        "default_ros_image",
-        "osrf/ros:humble-desktop",
-      );
-      const gpuPassthrough = await getBool("gpu_passthrough", true);
-      const concurrentWorkers = await getNum("concurrent_workers", 4);
-      const autoTeardownAfter = await getStr(
-        "auto_teardown_after",
-        "2 minutes",
-      );
-      const cacheDir = await getStr("cache_dir", defaultCache);
-      const bagArchiveRoot = await getStr(
-        "bag_archive_root",
-        defaultBagArchiveRoot,
-      );
-      const autoIndexBags = await getBool("auto_index_bags", true);
-      const chunkWindow = await getStr("chunk_window", "5 sec");
-      const updateChannel = await getStr("update_channel", "Stable");
-
-      const apiKeys: Record<string, string> = {};
-      for (const p of [
+      // All settings reads and keychain lookups below are independent of one
+      // another, so run them concurrently instead of awaiting serially. This
+      // turns ~24 sequential IPC round-trips into a single parallel batch so
+      // first paint isn't blocked behind them.
+      const providerIds = [
         "anthropic",
         "openai",
         "google",
         "ollama",
         "nvidia",
         "custom",
-      ]) {
-        apiKeys[p] = (await window.datapilot.keychain.get(p)) ?? "";
-      }
+      ];
+
+      const [
+        accentColor,
+        uiDensity,
+        monoFreq,
+        telemetryUsage,
+        telemetryCrash,
+        defaultProvider,
+        defaultModel,
+        embeddingModel,
+        dockerSocket,
+        tlsCertPath,
+        defaultRosImage,
+        gpuPassthrough,
+        concurrentWorkers,
+        autoTeardownAfter,
+        cacheDir,
+        bagArchiveRoot,
+        autoIndexBags,
+        chunkWindow,
+        updateChannel,
+        keychainValues,
+      ] = await Promise.all([
+        getStr("accent_color", "Electric"),
+        getStr("ui_density", "Comfortable"),
+        getBool("mono_freq", true),
+        getBool("telemetry_usage", false),
+        getBool("telemetry_crash", true),
+        getStr("default_provider", "google"),
+        getStr("default_model", "gemini-3.1-flash-lite"),
+        getStr("embedding_model", "voyage-3 (Anthropic)"),
+        getStr("docker_socket", defaultSocket),
+        getStr("tls_cert_path", ""),
+        getStr("default_ros_image", "osrf/ros:humble-desktop"),
+        getBool("gpu_passthrough", true),
+        getNum("concurrent_workers", 4),
+        getStr("auto_teardown_after", "2 minutes"),
+        getStr("cache_dir", defaultCache),
+        getStr("bag_archive_root", defaultBagArchiveRoot),
+        getBool("auto_index_bags", true),
+        getStr("chunk_window", "5 sec"),
+        getStr("update_channel", "Stable"),
+        Promise.all(
+          providerIds.map(async (p) => window.datapilot.keychain.get(p)),
+        ),
+      ]);
+
+      const apiKeys: Record<string, string> = {};
+      providerIds.forEach((p, i) => {
+        apiKeys[p] = keychainValues[i] ?? "";
+      });
 
       set({
         accentColor,

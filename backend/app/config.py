@@ -1,23 +1,23 @@
-from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
-    neo4j_uri: str = Field("bolt://localhost:7687", env="NEO4J_URI")
-    neo4j_user: str = Field("neo4j", env="NEO4J_USER")
-    neo4j_password: str = Field("datapilot-local", env="NEO4J_PASSWORD")
-    datapilot_data_dir: str = Field("/data", env="DATAPILOT_DATA_DIR")
-    datapilot_host_mount: str = Field("/host", env="DATAPILOT_HOST_MOUNT")
-    openai_api_key: Optional[str] = Field(None, env="OPENAI_API_KEY")
-    anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
-    gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
-    nvidia_api_key: Optional[str] = Field(None, env="NVIDIA_API_KEY")
-    ollama_host: str = Field("http://host.docker.internal:11434", env="OLLAMA_HOST")
-    default_provider: Optional[str] = Field(None, env="DEFAULT_PROVIDER")
-    default_model: Optional[str] = Field(None, env="DEFAULT_MODEL")
+    # pydantic-settings v2 auto-maps each field to its UPPER_SNAKE env var by
+    # name (case-insensitive), so the explicit `Field(env=...)` mappings the v1
+    # code used are unnecessary — and were silently ignored under v2 (issue #77).
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = "datapilot-local"
+    datapilot_data_dir: str = "/data"
+    datapilot_host_mount: str = "/host"
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    nvidia_api_key: Optional[str] = None
+    ollama_host: str = "http://host.docker.internal:11434"
+    default_provider: Optional[str] = None
+    default_model: Optional[str] = None
 
 settings = Settings()
