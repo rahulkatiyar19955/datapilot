@@ -254,3 +254,97 @@ class TestSeverityMapping:
         assert level_map[0] == "OK"
         assert level_map[2] == "ERROR"
         assert level_map.get(7, "OK") == "OK"
+
+
+# ---------------------------------------------------------------------------
+# _parse_db3 — undeclared-topic guard (issue #82)
+# ---------------------------------------------------------------------------
+
+class _FakeConnection:
+    """Mimics rosbags' connection record (topic + msgtype)."""
+
+    def __init__(self, topic: str, msgtype: str = "std_msgs/msg/String"):
+        self.topic = topic
+        self.msgtype = msgtype
+
+
+class _FakeReader:
+    """Minimal stand-in for rosbags.rosbag2.Reader used as a context manager.
+
+    `connections` is the catalog the parser pre-populates `topics_dict` from.
+    `messages()` deliberately yields a message on a topic that is NOT in
+    `connections` (a corrupt / partial bag) to exercise the guard.
+    """
+
+    # Populated per-test by the factory below.
+    _connections: list = []
+    _messages: list = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    @property
+    def connections(self):
+        return type(self)._connections
+
+    def messages(self):
+        yield from type(self)._messages
+
+
+class TestParseDb3UndeclaredTopic:
+    """Issue #82: a db3 message on a topic with no connection record must be
+    skipped/counted gracefully instead of raising KeyError and aborting the
+    whole parse (the mcap path already guards this)."""
+
+    def _patch_rosbags(self, monkeypatch, connections, messages):
+        import rosbags.rosbag2 as rosbag2_mod
+        import rosbags.serde as serde_mod
+
+        _FakeReader._connections = connections
+        _FakeReader._messages = messages
+        monkeypatch.setattr(rosbag2_mod, "Reader", _FakeReader)
+        # `_parse_db3` does `from rosbags.serde import deserialize_cdr` at the top;
+        # the installed rosbags build doesn't export that name, so inject a stub
+        # (raising=False creates it) to keep the import from failing. The test
+        # topics are non-decode topics, so this stub is never actually called.
+        monkeypatch.setattr(
+            serde_mod, "deserialize_cdr", lambda *a, **k: object(), raising=False
+        )
+
+    def test_undeclared_topic_message_does_not_raise(self, monkeypatch):
+        # One declared topic in the catalog ...
+        connections = [_FakeConnection("/declared", "std_msgs/msg/String")]
+        declared = _FakeConnection("/declared", "std_msgs/msg/String")
+        # ... but a message arrives on an UNDECLARED topic (no connection record).
+        undeclared = _FakeConnection("/ghost", "std_msgs/msg/String")
+        messages = [
+            (declared, 1_000_000_000, b""),     # t = 1.0s, declared topic
+            (undeclared, 2_000_000_000, b""),   # t = 2.0s, undeclared → would KeyError
+            (declared, 3_000_000_000, b""),     # t = 3.0s, declared topic
+        ]
+        self._patch_rosbags(monkeypatch, connections, messages)
+
+        res = ingestion_parser._parse_db3("/fake/path.db3")
+
+        # Parse completed without KeyError and the declared topic was counted.
+        topics_by_name = {t["name"]: t for t in res["topics"]}
+        assert "/declared" in topics_by_name
+        assert topics_by_name["/declared"]["msgs"] == 2
+        assert res["total_messages"] >= 2
+
+    def test_undeclared_topic_is_handled_gracefully(self, monkeypatch):
+        # Bag with NO connection records at all, yet messages still stream in.
+        undeclared = _FakeConnection("/ghost", "std_msgs/msg/String")
+        messages = [(undeclared, 1_000_000_000, b"")]
+        self._patch_rosbags(monkeypatch, [], messages)
+
+        # Must not raise; result is well-formed.
+        res = ingestion_parser._parse_db3("/fake/path.db3")
+        assert isinstance(res["topics"], list)
+        assert "total_messages" in res

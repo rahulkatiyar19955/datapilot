@@ -3,17 +3,17 @@
 Reuses the deterministic MockRouter (mock LLM) from tests.fixtures.mock_llm.
 The autouse `mock_neo4j` fixture keeps everything offline.
 
-These tests characterize CURRENT behavior, including the replan-cap off-by-one.
+These tests pin the RECONCILED behavior of the replan cap + partial flag.
 
-NOTE (issues #53/#54): the replan cap interacts with the `partial` flag in an
-off-by-one way.
-  - `replan_node` increments `replan_count` FIRST, then bails to the composer
-    only when the *post-increment* count is STRICTLY GREATER than MAX_REPLANS
-    (== 5). So the bail fires when the incoming count was already 5 → new
-    count 6. That means up to 6 replan invocations can run (counts 1..6), with
-    the 6th being the bail-out, not 5.
-  - The bail-out path sets `final = {"partial": True}` directly, bypassing the
-    composer entirely (so no prose response is produced on overflow).
+Issues #53/#54 (FIXED): the replan cap now aligns on MAX_REPLANS (== 5).
+  - `replan_node` checks the INCOMING count first: if it has already reached
+    MAX_REPLANS the cap is exhausted, so it does NOT increment or call the LLM
+    again — it sets the `force_compose` flag so the graph routes to the
+    composer, which emits `partial=True`. At most MAX_REPLANS real replans run
+    (incoming 0..4 → counts 1..5).
+  - The overflow path no longer writes a dead `final = {"partial": True}`
+    (that write was discarded by the `replan → dispatcher` edge). The graph
+    routes `replan → composer` when `force_compose` is set.
 """
 from __future__ import annotations
 
@@ -137,42 +137,41 @@ def test_replan_handles_non_json_llm_output():
 # ── Off-by-one / overflow (issues #53/#54) ───────────────────────────────────
 
 
-def test_replan_does_not_bail_at_max_replans_boundary():
-    """Incoming count == MAX_REPLANS-1 (4) → new count 5, which is NOT > 5,
-    so this is still a normal replan, not the overflow bail."""
+def test_replan_does_not_bail_one_below_cap():
+    """Incoming count == MAX_REPLANS-1 (4) → still has budget for one more
+    replan → new count 5, a normal replan, not the overflow bail."""
     router = _router_with_plan([{"specialist": "AnomalyDetector", "intent": "i"}])
     out = asyncio.run(replan_node(_base_state(replan_count=MAX_REPLANS - 1), router=router))
     assert out["replan_count"] == MAX_REPLANS  # 5
     # Normal path emits a "plan" key; bail-out path does not.
     assert "plan" in out
-    assert out.get("final") is None
+    assert not out.get("force_compose")
 
 
-def test_replan_bails_to_partial_only_after_exceeding_cap():
-    """NOTE (issues #53/#54): the bail fires when incoming count == MAX_REPLANS
-    (5) → new count 6 (> 5). So a 6th replan invocation happens, and only then
-    does it short-circuit to composer with partial=True. The cap is effectively
-    one higher than the documented 5."""
+def test_replan_bails_to_force_compose_at_cap():
+    """Issues #53/#54 (FIXED): the bail fires when the INCOMING count has already
+    reached MAX_REPLANS (5). The cap is exhausted, so replan_node does NOT
+    increment or call the LLM again — it sets force_compose so the graph routes
+    to the composer, which emits partial=True."""
     out = asyncio.run(
         replan_node(_base_state(replan_count=MAX_REPLANS), router=MockRouter())
     )
-    assert out["replan_count"] == MAX_REPLANS + 1  # 6
-    assert out["final"] == {"partial": True}
-    # Bail-out path does NOT rebuild the plan.
+    assert out["force_compose"] is True
+    # No spurious increment past the cap: the bail leaves replan_count untouched
+    # (the existing state value of MAX_REPLANS is kept by the reducer).
+    assert "replan_count" not in out
+    # Bail-out path does NOT rebuild the plan, and writes no dead `final`.
     assert "plan" not in out
+    assert "final" not in out
     assert out["audit_trail"][0]["step_kind"] == "replan"
-    assert "cap exceeded" in out["audit_trail"][0]["result_summary"]
+    assert "cap" in out["audit_trail"][0]["result_summary"]
 
 
-def test_replan_bail_preserves_existing_final():
-    """On overflow, if a `final` already exists it is left untouched (set to
-    None in the returned delta so the reducer keeps the prior value)."""
-    existing = {"response": "already composed", "partial": False}
-    out = asyncio.run(
-        replan_node(
-            _base_state(replan_count=MAX_REPLANS, final=existing),  # type: ignore[arg-type]
-            router=MockRouter(),
-        )
-    )
-    # When final is already set, replan returns final=None (no overwrite intent).
-    assert out["final"] is None
+def test_replan_route_after_replan_force_compose():
+    """Issue #53 (FIXED): the conditional edge routes replan → composer when the
+    cap is exhausted (force_compose set), and replan → dispatcher otherwise."""
+    from app.agent.replan import route_after_replan
+
+    assert route_after_replan(_base_state(force_compose=True)) == "composer"
+    assert route_after_replan(_base_state(force_compose=False)) == "dispatcher"
+    assert route_after_replan(_base_state()) == "dispatcher"

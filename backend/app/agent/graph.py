@@ -15,7 +15,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agent.composer import composer_node
 from app.agent.dispatcher import dispatcher_node, route_after_dispatch
-from app.agent.replan import replan_node
+from app.agent.replan import replan_node, route_after_replan
 from app.agent.state import GraphState
 from app.agent.supervisor import supervisor_node
 from app.llm.router import LLMRouter
@@ -44,7 +44,14 @@ def build_graph(router: LLMRouter, checkpointer: Any = None):
         route_after_dispatch,
         {"dispatcher": "dispatcher", "replan": "replan", "composer": "composer"},
     )
-    builder.add_edge("replan", "dispatcher")
+    # On replan overflow (force_compose) the edge routes straight to the
+    # composer for a partial compose; otherwise back to the dispatcher to run
+    # the rewritten plan tail (issue #53).
+    builder.add_conditional_edges(
+        "replan",
+        route_after_replan,
+        {"dispatcher": "dispatcher", "composer": "composer"},
+    )
     builder.add_edge("composer", END)
 
     return builder.compile(checkpointer=checkpointer)
@@ -71,6 +78,7 @@ def initial_state(
         specialist_outputs={},
         retrieval_context=[],
         replan_count=0,
+        force_compose=False,
         audit_trail=[],
         token_budget_remaining=25_000,
         final=None,

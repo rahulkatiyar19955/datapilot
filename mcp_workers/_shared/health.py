@@ -7,11 +7,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 
 logger = logging.getLogger(__name__)
+
+# Bind the health server to loopback by default so the worker name + tool count
+# are not exposed on all interfaces (issue #91). The backend probes it locally,
+# so loopback is sufficient. Operators that genuinely need cross-interface
+# access (e.g. probing from another container) can override via the env var.
+_DEFAULT_HEALTH_HOST = "127.0.0.1"
 
 
 def start_health_server(worker_name: str, port: int, tool_count_fn: Callable[[], int]) -> None:
@@ -51,10 +58,12 @@ def start_health_server(worker_name: str, port: int, tool_count_fn: Callable[[],
             # MCP transport; we don't want noise on stderr either.
             pass
 
+    host = os.environ.get("DATAPILOT_HEALTH_HOST") or _DEFAULT_HEALTH_HOST
+
     def _serve():
         try:
-            srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-            logger.info("health server for %s listening on :%d", worker_name, port)
+            srv = ThreadingHTTPServer((host, port), Handler)
+            logger.info("health server for %s listening on %s:%d", worker_name, host, port)
             srv.serve_forever()
         except Exception:
             logger.exception("health server for %s crashed", worker_name)

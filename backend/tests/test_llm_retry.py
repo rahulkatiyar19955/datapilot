@@ -4,14 +4,13 @@ Targets the pure helpers (`rate_limit_delay`, `_suggested_delay_from_headers`)
 and the `retry_async` decorator behavior. Real `asyncio.sleep` calls are
 monkeypatched away so the retry path is exercised without wall-clock delay.
 
-NOTE (issue #66): `retry_async.wrapper` has an implicit-None fall-through risk.
-When `stream=True` is decorated on a `complete` method the decorator still wraps
-it, and the `for attempt in range(max_attempts)` loop only ever `return`s inside
-the `try`. If the loop body neither returns nor raises (which cannot happen on
-the current happy path but is fragile), the wrapper falls off the end and
-returns `None`. These tests characterize the *current* behavior: the wrapper is
-a transparent pass-through for any awaitable and returns whatever the wrapped
-coroutine returns on success.
+ISSUE #66 (fixed): `retry_async.wrapper` previously had an implicit-None
+fall-through risk. The `for attempt in range(max_attempts)` loop only ever
+`return`s inside the `try`, so if the loop ever exited without returning or
+raising (e.g. an empty range when `max_attempts < 1`), the wrapper fell off the
+end and silently returned `None`. The wrapper now has an explicit terminal
+`raise` after the loop, so it can never return `None`. The tests below assert
+that guarantee directly (loop-exhaustion path raises rather than returning None).
 """
 from __future__ import annotations
 
@@ -262,3 +261,35 @@ async def test_retry_async_streaming_path_is_pass_through():
     iterator = await wrapped(stream=True)
     collected = [chunk async for chunk in iterator]
     assert collected == [{"delta_text": "hello"}, {"delta_text": " world"}]
+
+
+# ── issue #66: never implicitly return None ─────────────────────────────────
+
+
+async def test_retry_async_never_returns_none_on_loop_exhaustion():
+    """If the retry loop ever exits without returning or raising (an empty
+    range when max_attempts < 1), the wrapper must raise rather than silently
+    return None. Pre-fix this returned None; now it raises RuntimeError."""
+
+    async def never_called(*args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("fn should never be invoked when max_attempts < 1")
+
+    wrapped = retry_async(max_attempts=0)(never_called)
+    with pytest.raises(RuntimeError):
+        await wrapped()
+
+
+async def test_retry_async_reraise_path_returns_non_none(no_sleep):
+    """The give-up path raises the underlying error (never returns None)."""
+    counter = _Counter(fail_times=99, exc_factory=lambda: _RateLimitError(status_code=429))
+    wrapped = retry_async(max_attempts=2)(counter)
+    with pytest.raises(_RateLimitError):
+        await wrapped()
+
+
+async def test_retry_async_success_result_is_never_none():
+    """Sanity check the happy path never yields None for a real result."""
+    counter = _Counter(fail_times=0, exc_factory=lambda: _RateLimitError())
+    wrapped = retry_async()(counter)
+    result = await wrapped()
+    assert result is not None
