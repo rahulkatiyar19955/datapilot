@@ -16,11 +16,6 @@ export default tseslint.config(
       'build/**',
       'node_modules/**',
       'coverage/**',
-      '.claude/**',
-      // Editor/agent tooling directories — vendored skill code, not ours.
-      '.agent/**',
-      '.agents/**',
-      '.codex/**',
       '.pytest_cache/**',
       // Python services have their own tooling (ruff/mypy), not ESLint.
       'backend/**',
