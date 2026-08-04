@@ -72,6 +72,28 @@ export function assertSafeKey(value: unknown, label = "key"): string {
 }
 
 /**
+ * Settings keys that grant the renderer privileged control over the main
+ * process and must therefore NOT be writable through the generic `settings:set`
+ * handler (issue #31). `docker_socket` repoints the Docker daemon connection —
+ * a root-equivalent capability — so it is delivered out of band (env override,
+ * validated by `validateDockerSocket`), never from renderer-writable settings.
+ */
+const PRIVILEGED_SETTINGS_KEYS: ReadonlySet<string> = new Set(["docker_socket"]);
+
+/**
+ * Validates a key for the generic `settings:set` write path. Builds on
+ * `assertSafeKey` (charset + prototype-pollution) and additionally refuses
+ * privileged keys the renderer must not control.
+ */
+export function assertSettableKey(value: unknown, label = "key"): string {
+  const key = assertSafeKey(value, label);
+  if (PRIVILEGED_SETTINGS_KEYS.has(key)) {
+    throw new IpcValidationError(`${label} is not settable from the renderer`);
+  }
+  return key;
+}
+
+/**
  * Theme values accepted by the renderer contract (`src/shared/ipc.ts`).
  *
  * NOTE: issue #28 mentions the literal union `'light' | 'dark'`, but the live
@@ -209,6 +231,87 @@ export function isUnsafeOpenTarget(canonicalPath: string): boolean {
     if (UNSAFE_OPEN_EXTENSIONS.has(ext)) return true;
   }
   return false;
+}
+
+export interface DockerSocketOptions {
+  /** The platform default socket path used when no override is supplied. */
+  platformDefault: string;
+  /** Whether the host is Windows (named-pipe form instead of a unix socket). */
+  isWindows: boolean;
+  /**
+   * Directories an override socket is allowed to live in (non-Windows). The
+   * override's parent directory must match one of these exactly. Computed by
+   * the orchestrator from vetted locations (e.g. `/var/run`, `~/.colima/...`).
+   */
+  allowedDirs: readonly string[];
+}
+
+/**
+ * Validates a Docker socket path (issue #31).
+ *
+ * The renderer can no longer write `docker_socket` (see `assertSettableKey`);
+ * the only override channel is a trusted environment variable. We still sanity-
+ * check that value so a bad env cannot repoint the daemon connection to an
+ * arbitrary location. Empty/missing → the platform default. On Windows only the
+ * `\\.\pipe\` named-pipe form is accepted. On Unix the path must be absolute,
+ * free of `..` traversal and URL schemes, and its parent directory must be on
+ * the allow-list (or equal the platform default). Throws otherwise.
+ */
+export function validateDockerSocket(
+  value: unknown,
+  opts: DockerSocketOptions,
+): string {
+  const { platformDefault, isWindows, allowedDirs } = opts;
+  if (value === undefined || value === null || value === "") {
+    return platformDefault;
+  }
+  const socket = assertString(value, "docker_socket");
+  if (socket === platformDefault) return socket;
+
+  if (isWindows) {
+    if (/^\\\\\.\\pipe\\[A-Za-z0-9_.-]+$/.test(socket)) return socket;
+    throw new IpcValidationError(
+      "docker_socket must be a \\\\.\\pipe\\ named pipe",
+    );
+  }
+
+  if (socket.includes("://")) {
+    throw new IpcValidationError("docker_socket must be a filesystem socket");
+  }
+  if (!socket.startsWith("/")) {
+    throw new IpcValidationError("docker_socket must be an absolute path");
+  }
+  if (socket.split("/").includes("..")) {
+    throw new IpcValidationError("docker_socket must not contain '..'");
+  }
+  const lastSlash = socket.lastIndexOf("/");
+  const dir = lastSlash <= 0 ? "/" : socket.slice(0, lastSlash);
+  if (!allowedDirs.includes(dir)) {
+    throw new IpcValidationError("docker_socket is in a disallowed directory");
+  }
+  return socket;
+}
+
+/** ROS bag extensions recognized as "open with DataPilot" targets. */
+const BAG_EXT_RE = /\.(mcap|db3|bag)$/i;
+
+/**
+ * Extracts a bag file path from a process argv array (issue #51).
+ *
+ * Used by the `second-instance` handler so that double-clicking a `.mcap` /
+ * `.db3` / `.bag` while the app is already running opens it. Flags (leading
+ * `-`) and non-string entries are ignored; returns the first bag-like argument
+ * or `null` if none is present.
+ */
+export function extractBagPathFromArgv(
+  argv: readonly unknown[],
+): string | null {
+  for (const arg of argv) {
+    if (typeof arg !== "string") continue;
+    if (arg.startsWith("-")) continue;
+    if (BAG_EXT_RE.test(arg)) return arg;
+  }
+  return null;
 }
 
 /**

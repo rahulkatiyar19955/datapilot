@@ -236,3 +236,29 @@ This list records both historical selections and active component packages:
 * *Likelihood*: Low
 * *Impact*: High (Renderer crashes during dense bag playback)
 * *Mitigation*: Bind chart hover and scroll updates through React state throttling. Keep DOM allocations static and redraw path nodes by modifying `d` path attributes directly.
+
+## 9. Desktop Security Hardening
+
+### 9.1 [APPROVED] API key delivery to the backend container: bind-mounted secret file vs. container `Env` vs. renderer→HTTP POST (#39, #32)
+
+**Decision:** The Electron main process writes the user's decrypted provider API keys to a **mode-0600 host file** (`<userData>/secrets/backend-keys.json`) and bind-mounts it **read-only** into the backend container at `/run/datapilot/secrets/backend-keys.json`. The backend reads it at startup (FastAPI `lifespan`) and on `POST /api/settings/reload-secrets` (a no-secret trigger).
+
+**Rejected alternatives:**
+* *Inject keys via the container `Env` array* — environment variables are readable through `docker inspect` and `/proc/<pid>/environ` by any local process with Docker access, defeating the at-rest `safeStorage` protection (#32).
+* *POST keys from the renderer to `/api/settings/keys` over plain `http://localhost:8000`* — moves the secret out of `safeStorage` onto the renderer process and a local HTTP socket on every key edit (#39).
+
+**Justified exception (per AGENT.md → "Secrets: `safeStorage` only"):** keys still originate in `safeStorage`; only the *privileged main process* ever decrypts them, and only to hand them to the backend out of band. They never traverse the renderer, a local HTTP body, or the system clipboard (the Settings key-copy control was removed). When the user changes a key the main process rewrites the 0600 file and pings the no-secret reload endpoint, so a running backend updates without a restart and without the key crossing the renderer→HTTP boundary.
+
+**Scope note:** the static, local-only Neo4j credential (`datapilot-local`) is intentionally left as a container env var — it is a fixed development credential, not user data, and is hardcoded as the backend default. Per-session Neo4j password generation is tracked separately.
+
+### 9.2 [APPROVED] Docker socket is privileged, not a renderer setting (#31)
+
+The Docker socket connection is root-equivalent. The renderer can no longer write `docker_socket` (rejected by `assertSettableKey` in the `settings:set` handler), and the orchestrator no longer reads the socket from renderer-writable settings. The only override is the `DATAPILOT_DOCKER_SOCKET` environment variable, validated by `validateDockerSocket` (absolute path, no traversal/URL scheme, parent directory on a vetted allow-list) so even a bad env value cannot repoint the daemon connection.
+
+### 9.3 [APPROVED] `storage:usage` is allow-listed and bounded (#37)
+
+The `storage:usage` IPC walk is constrained to an allow-list of roots (userData, the configured cache/bag directories) — rejecting arbitrary-path probing — and runs asynchronously via `fs.promises` with depth and entry caps so a hostile or pathological tree can neither freeze the main thread nor run unbounded.
+
+### 9.4 [APPROVED] Keychain at-rest encoding is tagged; failures surface (#40, #51)
+
+Stored secret blobs are tagged (`v1:enc:`) so the reader never guesses the encoding. When OS encryption is unavailable the keychain **refuses to persist** rather than silently writing recoverable base64, and `keychain:set` returns a typed `{ ok, error }` result so the renderer can surface a failed save instead of believing it succeeded.

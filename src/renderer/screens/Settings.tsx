@@ -331,7 +331,6 @@ function KeyInput({
   onRefreshModels?: (models: string[]) => void;
 }): JSX.Element {
   const [reveal, setReveal] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [localStatus, setLocalStatus] = useState<
     "idle" | "testing" | "success" | "error"
   >(status === "connected" ? "success" : status === "error" ? "error" : "idle");
@@ -347,13 +346,6 @@ function KeyInput({
     );
     setErrorMsg(null);
   }, [status, value]);
-
-  const handleCopy = () => {
-    void navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
 
   const handleTest = async () => {
     if (!value && provider.id !== "ollama") {
@@ -493,6 +485,8 @@ function KeyInput({
           onChange={onChange}
           after={
             <div className="row gap-1">
+              {/* #39: no clipboard copy — secrets must not leave safeStorage
+                  (the system clipboard is readable by other processes). */}
               <button
                 className="btn ghost icon sm"
                 onClick={() => setReveal((r) => !r)}
@@ -501,19 +495,6 @@ function KeyInput({
                 style={{ height: 22, width: 22 }}
               >
                 {reveal ? <Icon.EyeOff size={12} /> : <Icon.Eye size={12} />}
-              </button>
-              <button
-                className="btn ghost icon sm"
-                title="Copy"
-                aria-label="Copy API key"
-                style={{ height: 22, width: 22 }}
-                onClick={handleCopy}
-              >
-                {copied ? (
-                  <Icon.Check size={12} style={{ color: "var(--color-ok)" }} />
-                ) : (
-                  <Icon.Copy size={12} />
-                )}
               </button>
             </div>
           }
@@ -839,14 +820,6 @@ function ModelsSection(): JSX.Element {
   );
 }
 
-const DOCKER_PRESETS = [
-  ["unix:///var/run/docker.sock", "Local (Linux/macOS)"],
-  ["npipe:////./pipe/docker_engine", "Windows named pipe"],
-  ["tcp://localhost:2375", "TCP · 2375 (unencrypted)"],
-  ["tcp://docker.internal:2376", "TCP · 2376 (TLS)"],
-  ["ssh://user@host", "Remote over SSH"],
-] as const;
-
 function DockerSection(): JSX.Element {
   const {
     dockerSocket,
@@ -875,29 +848,12 @@ function DockerSection(): JSX.Element {
         </Row>
         <Row
           label="Docker socket"
-          hint="Path or URL the client connects to. Most setups use the local Unix socket."
+          hint="Read-only. The Docker socket is a privileged setting and is no longer editable here (#31); override it with the DATAPILOT_DOCKER_SOCKET environment variable."
         >
-          <FieldInput
-            mono
-            placeholder="unix:///var/run/docker.sock"
-            value={dockerSocket}
-            onChange={(v) => setSetting("dockerSocket", v)}
-          />
-        </Row>
-        <Row label="Quick presets">
-          <div className="row gap-2" style={{ flexWrap: "wrap" }}>
-            {DOCKER_PRESETS.map(([val, label]) => (
-              <button
-                key={label}
-                className="pill ghost"
-                style={{ cursor: "pointer", height: 26 }}
-                onClick={() => setSetting("dockerSocket", val)}
-              >
-                <Icon.Plug size={11} />
-                {label}
-              </button>
-            ))}
-          </div>
+          <span className="pill ghost mono">
+            <Icon.Plug size={11} />
+            {dockerSocket || "platform default"}
+          </span>
         </Row>
         <Row
           label="TLS certificate path"

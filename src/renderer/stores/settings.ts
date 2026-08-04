@@ -206,19 +206,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Called by App.tsx once dockerStatus.state === 'ready' so the backend is
   // guaranteed to be listening before we attempt the POST.
   syncKeysToBackend: async () => {
-    const { apiKeys, defaultProvider, defaultModel } = get();
-    for (const [provider, key] of Object.entries(apiKeys)) {
-      if (key) {
-        try {
-          await updateBackendKey(provider, key);
-        } catch (err) {
-          console.warn(
-            `Failed to sync API key for ${provider} to backend:`,
-            err,
-          );
-        }
-      }
-    }
+    const { defaultProvider, defaultModel } = get();
+    // #39: provider API keys are NEVER POSTed to the backend. They live in
+    // safeStorage and are delivered out of band via the main-process secret
+    // file. Only the non-secret default provider/model are synced over HTTP.
     try {
       await updateBackendKey("default_provider", defaultProvider);
     } catch (err) {
@@ -285,9 +276,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }));
 
     try {
-      await window.datapilot.keychain.set(provider, value);
-      // Sync API key to backend container at runtime
-      await updateBackendKey(provider, value);
+      // #39: persist to safeStorage only. The main process delivers the key to
+      // the backend out of band (secret file), so it never crosses renderer→HTTP.
+      const result = await window.datapilot.keychain.set(provider, value);
+      // #40/#51: surface a refused/failed persist instead of silently dropping it.
+      if (result && result.ok === false) {
+        console.error(
+          `Failed to save API key for ${provider}: ${result.error ?? "unknown error"}`,
+        );
+      }
     } catch (err) {
       console.error(`Failed to save API key for ${provider}:`, err);
     }
@@ -315,7 +312,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         "default_provider",
         "default_model",
         "embedding_model",
-        "docker_socket",
+        // docker_socket is privileged and no longer renderer-settable (#31).
         "tls_cert_path",
         "default_ros_image",
         "gpu_passthrough",
@@ -332,6 +329,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         await window.datapilot.settings.set(k, "");
       }
 
+      // Clear each provider key from the secure store. We do NOT POST the
+      // cleared keys to the backend (#39); the main process re-syncs the secret
+      // file from safeStorage after the keychain changes.
       for (const p of [
         "anthropic",
         "openai",
@@ -341,11 +341,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         "custom",
       ]) {
         await window.datapilot.keychain.set(p, "");
-        try {
-          await updateBackendKey(p, "");
-        } catch (err) {
-          console.error(`Failed to clear API key for ${p} on backend:`, err);
-        }
       }
 
       // Reload defaults

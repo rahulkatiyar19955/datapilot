@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { dockerOrchestrator } from "./dockerOrchestrator";
 import { registerIpcHandlers } from "./ipcHandlers";
+import { extractBagPathFromArgv } from "./ipcValidation";
 
 // Isolate development environment settings & keychain to prevent permission conflicts
 if (!app.isPackaged) {
@@ -90,10 +91,18 @@ function createWindow(): void {
   });
 }
 
-app.on("second-instance", () => {
+app.on("second-instance", (_event, commandLine) => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
+
+    // #51: forward a bag path from the second instance's argv so that
+    // "Open with DataPilot" works on an already-running app instead of
+    // silently doing nothing.
+    const bagPath = extractBagPathFromArgv(commandLine);
+    if (bagPath) {
+      mainWindow.webContents.send("file:open-bag", bagPath);
+    }
   }
 });
 
