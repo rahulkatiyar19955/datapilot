@@ -106,6 +106,70 @@ _WRITE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+
+def _strip_comments(cypher: str) -> str:
+    """Remove Cypher comments (`//` to end-of-line, `/* */`) that fall OUTSIDE
+    string literals.
+
+    Comments inside a quoted literal are data, not syntax, and must be kept: a
+    blind strip would turn `WHERE n.url = "http://x" CREATE (m)` into
+    `WHERE n.url = "http:` and silently drop the CREATE — turning a bypass fix
+    into a new bypass. Quote state (including backslash escapes and backtick
+    identifiers) is tracked so only real comments are removed.
+    """
+    out: list[str] = []
+    i, n = 0, len(cypher)
+    quote: str | None = None
+    while i < n:
+        ch = cypher[i]
+        if quote is not None:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(cypher[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if cypher.startswith("//", i):
+            nl = cypher.find("\n", i)
+            i = n if nl == -1 else nl
+            out.append(" ")
+            continue
+        if cypher.startswith("/*", i):
+            end = cypher.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+            out.append(" ")
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _scannable(cypher: str) -> str:
+    """Normalize a query before blocklist matching.
+
+    Cypher ignores comments and arbitrary whitespace, so without this a caller
+    could split a blocked construct into an unmatchable form —
+    `CALL /*x*/apoc.load.json(...)` or `CALL dbms/*x*/.components()` both used
+    to slip past `_WRITE_PATTERN`. Comments are removed, whitespace runs are
+    collapsed, and whitespace around `.` is dropped so the namespace forms
+    reassemble into the shape the pattern matches.
+
+    This only ever makes matching MORE aggressive, which is the safe direction
+    for a security boundary: the normalized copy is used for the check only,
+    never for execution.
+    """
+    stripped = _strip_comments(cypher)
+    collapsed = re.sub(r"\s+", " ", stripped)
+    return re.sub(r"\s*\.\s*", ".", collapsed)
+
 # Server-side per-query transaction timeout (seconds). Configurable via env var
 # with a safe default so a single read can't run past the latency budget; the
 # driver aborts the transaction server-side when this elapses.
@@ -127,7 +191,7 @@ def run(args: dict[str, Any]) -> dict[str, Any]:
     if not cypher:
         return {"ok": False, "error": {"code": "missing_cypher", "message": "cypher is required", "retryable": False}}
 
-    if _WRITE_PATTERN.search(cypher):
+    if _WRITE_PATTERN.search(_scannable(cypher)):
         return {
             "ok": False,
             "error": {

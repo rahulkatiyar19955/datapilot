@@ -193,10 +193,19 @@ async def run_ingestion(session_id: str, filepath: str):
             
             await db.commit()
         except Exception as e:
+            # Never persist the raw exception: it is returned to the client via
+            # SessionResponse.error_message, and exception text routinely embeds
+            # bolt URIs with credentials and absolute host paths (issue #63).
+            # Mirror internal_error_handler — a fixed message plus a correlation
+            # id, with the full detail logged server-side only.
+            correlation_id = uuid.uuid4().hex
             record.status = "error"
-            record.error_message = str(e)
+            record.error_message = f"Ingestion failed (ref: {correlation_id})"
             await db.commit()
-            logger.error("ingestion failed for session %s: %s", session_id, e, exc_info=True)
+            logger.error(
+                "ingestion failed [%s] for session %s: %r",
+                correlation_id, session_id, e, exc_info=True,
+            )
 
 @router.post("/create", status_code=202)
 async def create_session(

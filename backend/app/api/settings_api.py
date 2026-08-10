@@ -211,6 +211,13 @@ class KeyUpdateRequest(BaseModel):
     key: str
 
 
+# Provider ids that carry a secret API key, mirroring `SECRET_PROVIDERS` in
+# `src/main/secrets.ts`. Only these are swept on reload — `default_provider` and
+# `default_model` also route through `_apply_key_update` but are preferences,
+# not secrets, and must never be cleared by a secret-file reload.
+_SECRET_PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "google", "nvidia")
+
+
 def _apply_key_update(provider: str, key: Optional[str]) -> None:
     """Apply a single key/setting change through one place and ALWAYS clear the
     cached router (issue #77).
@@ -269,14 +276,25 @@ def load_secrets_file(path: str) -> int:
         return 0
 
     applied = 0
+    seen: set[str] = set()
     for provider, key in data.items():
         if not isinstance(provider, str) or not isinstance(key, str):
             continue
+        seen.add(provider.strip().lower())
         trimmed = key.strip()
         if not trimmed:
+            _apply_key_update(provider, None)
             continue
         _apply_key_update(provider, trimmed)
         applied += 1
+
+    # A revoked key is expressed by ABSENCE: the main process omits empty keys
+    # when serializing the file, so clearing the last key yields `{}`. Without
+    # this sweep the revoked value stays live in this process until the
+    # container restarts, and the renderer no longer POSTs an explicit clear.
+    for provider in _SECRET_PROVIDERS:
+        if provider not in seen:
+            _apply_key_update(provider, None)
     return applied
 
 

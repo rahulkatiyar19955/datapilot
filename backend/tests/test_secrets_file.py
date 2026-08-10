@@ -39,6 +39,54 @@ def test_load_secrets_file_missing_file_is_noop(monkeypatch):
     assert load_secrets_file("/nonexistent/path/keys.json") == 0
 
 
+def test_load_secrets_file_clears_revoked_keys(tmp_path, monkeypatch):
+    """Regression: a revoked key is expressed by ABSENCE from the file, because
+    the main process omits empty keys when serializing it.
+
+    Applying only the providers present left the revoked value live in this
+    process until the container restarted — and the renderer no longer POSTs an
+    explicit clear, so this reload path is the only thing that can revoke.
+    """
+    from app.config import settings
+    from app.api.settings_api import load_secrets_file
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-old", raising=False)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-oai-old", raising=False)
+
+    # User cleared the OpenAI key; only anthropic survives in the file.
+    secret_file = tmp_path / "keys.json"
+    secret_file.write_text(json.dumps({"anthropic": "sk-ant-new"}))
+
+    applied = load_secrets_file(str(secret_file))
+
+    assert applied == 1
+    assert settings.anthropic_api_key == "sk-ant-new"
+    assert settings.openai_api_key is None
+
+
+def test_load_secrets_file_empty_object_clears_everything(tmp_path, monkeypatch):
+    """Clearing the last key yields `{}` — every provider must be revoked."""
+    from app.config import settings
+    from app.api.settings_api import load_secrets_file
+
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant", raising=False)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-oai", raising=False)
+    monkeypatch.setattr(settings, "gemini_api_key", "g-key", raising=False)
+    monkeypatch.setattr(settings, "nvidia_api_key", "nv-key", raising=False)
+    monkeypatch.setattr(settings, "default_provider", "openai", raising=False)
+
+    secret_file = tmp_path / "keys.json"
+    secret_file.write_text(json.dumps({}))
+
+    assert load_secrets_file(str(secret_file)) == 0
+    assert settings.anthropic_api_key is None
+    assert settings.openai_api_key is None
+    assert settings.gemini_api_key is None
+    assert settings.nvidia_api_key is None
+    # Preferences are not secrets and must survive a secret-file reload.
+    assert settings.default_provider == "openai"
+
+
 def test_load_secrets_file_malformed_json_is_noop(tmp_path):
     from app.api.settings_api import load_secrets_file
 

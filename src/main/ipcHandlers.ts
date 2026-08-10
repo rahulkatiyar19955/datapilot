@@ -76,7 +76,18 @@ function readSettings(): Record<string, string> {
 function writeSettings(settings: Record<string, string>): boolean {
   try {
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
+    // This file holds the safeStorage-encrypted `secure_*` API-key blobs, so it
+    // must be owner-only like the secret file derived from it. On Linux with no
+    // OS keyring, safeStorage falls back to the `basic_text` backend (whose key
+    // is a well-known constant) while still reporting encryption as available —
+    // a world-readable file would then be recoverable plaintext.
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    // `mode` only applies when the file is created, so chmod an existing one to
+    // tighten installs upgrading from the previous default (0644).
+    fs.chmodSync(settingsPath, 0o600);
     return true;
   } catch (err) {
     console.error("Failed to write settings:", err);
