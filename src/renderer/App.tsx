@@ -59,6 +59,16 @@ export function App(): JSX.Element {
     }
   }, [dockerStatus.state, syncKeysToBackend]);
 
+  // #51: "Open with DataPilot" on an already-running instance forwards the bag
+  // path here; load it like a picked/dropped file.
+  useEffect(() => {
+    if (!window.datapilot?.file?.onOpenBag) return;
+    const unsubscribe = window.datapilot.file.onOpenBag((bagPath) => {
+      if (bagPath) setPendingPath(bagPath);
+    });
+    return () => unsubscribe();
+  }, [setPendingPath]);
+
   // Global drag-and-drop listener for MCAP/bag files
   useEffect(() => {
     const handleDragOver = (e: DragEvent) => {

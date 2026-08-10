@@ -46,6 +46,15 @@ from app.services.neo4j_client import neo4j_client
 async def lifespan(_app: FastAPI):
     # Startup: initialize local SQLite schema (create-if-not-exists).
     await init_db()
+    # Load API keys from the bind-mounted secret file (#39/#32), if present, so
+    # keys never arrive via Env (docker inspect) or a renderer->HTTP POST.
+    try:
+        from app.config import settings as _cfg
+        from app.api.settings_api import load_secrets_file
+        if _cfg.datapilot_secrets_file:
+            load_secrets_file(_cfg.datapilot_secrets_file)
+    except Exception:
+        pass  # Non-fatal — keys can still be set via the runtime endpoint
     # Load per-specialist model overrides from SQLite into the in-memory store.
     try:
         from app.db_sqlite import AsyncSessionLocal
