@@ -16,7 +16,7 @@ from app.llm.base import (
 # Shared OpenAI-compatible mapping (issue #77) — re-exported for callers/tests
 # that reference these via the client module.
 from app.llm.openai_compat import _to_openai_messages, _to_openai_tools
-from app.llm.retry import retry_async
+from app.llm.retry import llm_timeout_seconds, retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,12 @@ class OpenAIClient:
     def __init__(self, model_id: str):
         import openai
         self.model_id = model_id
-        self._client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+        # Explicit per-request timeout (seconds) so a hung provider can't stall
+        # the agent turn indefinitely (#65/#48).
+        self._client = openai.AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            timeout=llm_timeout_seconds(),
+        )
 
     @retry_async()
     async def complete(

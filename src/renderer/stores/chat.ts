@@ -7,6 +7,10 @@ interface ChatState {
 
   addMessage: (msg: ChatMessage) => void;
   updateLastMessage: (updater: (m: ChatMessage) => ChatMessage) => void;
+  updateMessageById: (
+    id: string,
+    updater: (m: ChatMessage) => ChatMessage,
+  ) => void;
   updatePlanStep: (idx: number, patch: Partial<PlanStep>) => void;
   setStreaming: (streaming: boolean) => void;
   clearMessages: () => void;
@@ -22,8 +26,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   updateLastMessage: (updater) =>
     set((s) => {
       if (s.messages.length === 0) return s;
+      const last = s.messages[s.messages.length - 1];
+      // Only the active assistant message receives streamed updates. Guarding by
+      // role keeps streamed content from clobbering a trailing user/system
+      // message (e.g. an error appended after the placeholder). See issue #36.
+      if (last.role !== "assistant") return s;
       const msgs = [...s.messages];
-      msgs[msgs.length - 1] = updater(msgs[msgs.length - 1]);
+      msgs[msgs.length - 1] = updater(last);
+      return { messages: msgs };
+    }),
+
+  updateMessageById: (id, updater) =>
+    set((s) => {
+      const idx = s.messages.findIndex((m) => m.id === id);
+      if (idx === -1) return s;
+      const msgs = [...s.messages];
+      msgs[idx] = updater(msgs[idx]);
       return { messages: msgs };
     }),
 

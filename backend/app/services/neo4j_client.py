@@ -79,7 +79,11 @@ class Neo4jClient:
             session.run(vector_query)
 
     def clear_session(self, session_id: str):
-        # Delete Session, its Logs, Topics, Anomalies, Frames, Sensors, and Diagnostics
+        # Delete Session, its Logs, Topics, Anomalies, Frames, Sensors,
+        # Diagnostics, and conversation-extracted Facts.
+        # NOTE (#72): Fact nodes are linked via (s)-[:HAS_FACT]->(:Fact). Without
+        # deleting them here, re-ingesting a session leaves the prior run's Fact
+        # nodes orphaned in the graph, so include `fact` in the DETACH DELETE.
         query = """
         MATCH (s:Session {id: $session_id})
         OPTIONAL MATCH (s)-[:HAS_LOG]->(l:Log)
@@ -87,8 +91,9 @@ class Neo4jClient:
         OPTIONAL MATCH (s)-[:HAS_ANOMALY]->(a:Anomaly)
         OPTIONAL MATCH (s)-[:HAS_SENSOR]->(sen:Sensor)
         OPTIONAL MATCH (s)-[:HAS_DIAGNOSTIC]->(d:DiagnosticStatus)
+        OPTIONAL MATCH (s)-[:HAS_FACT]->(fact:Fact)
         OPTIONAL MATCH (f:Frame {session_id: $session_id})
-        DETACH DELETE s, l, t, a, sen, d, f
+        DETACH DELETE s, l, t, a, sen, d, fact, f
         """
         with self.driver.session() as session:
             session.run(query, {"session_id": session_id})
@@ -115,12 +120,17 @@ class Neo4jClient:
     def write_diagnostics(self, session_id: str, diagnostics: list[dict]):
         if not diagnostics:
             return
-        # Collect the (few) Sensor nodes once up front, then match in-memory per
-        # diagnostic — avoids a per-row Sensor scan inside the UNWIND loop.
-        query = """
+        # NOTE (#75): this used to be a single pipeline that created the node and
+        # linked it to a Sensor in the same statement, using a loose
+        # `diag.name CONTAINS sen.name`. That over-matched — e.g. sensor `imu`
+        # is a substring of diagnostic `minimum_voltage`, so unrelated
+        # REPORTS_ON edges got created. We now split into two statements:
+        #   1. create every DiagnosticStatus node, then
+        #   2. a separate MATCH/MERGE that links to Sensors via EXACT matches
+        #      only (topic == topic, or hardware_id/name == sensor name).
+        # MERGE keeps the edge idempotent across re-runs.
+        create_query = """
         MATCH (s:Session {id: $session_id})
-        OPTIONAL MATCH (sen:Sensor {session_id: $session_id})
-        WITH s, collect(sen) AS sensors
         UNWIND $diagnostics_list AS diag_data
         CREATE (d:DiagnosticStatus {
             id: diag_data.id,
@@ -134,18 +144,26 @@ class Neo4jClient:
             session_id: $session_id
         })
         CREATE (s)-[:HAS_DIAGNOSTIC]->(d)
-
-        // Link to Sensor if the name or hardware_id matches the sensor's name/topic
-        WITH d, diag_data, sensors
-        UNWIND sensors AS sen
-        WITH d, diag_data, sen
+        """
+        # Link each diagnostic to its sensor using EXACT matches only.
+        # Reach the DiagnosticStatus by traversing HAS_DIAGNOSTIC from the
+        # already-bound Session rather than a global `MATCH (d:DiagnosticStatus
+        # {id, session_id})`: there is no index on DiagnosticStatus(id) or
+        # (session_id), so the bare match would full-scan every diagnostic node.
+        # The traversal scopes the search to this session's subgraph.
+        link_query = """
+        MATCH (s:Session {id: $session_id})
+        UNWIND $diagnostics_list AS diag_data
+        MATCH (s)-[:HAS_DIAGNOSTIC]->(d:DiagnosticStatus {id: diag_data.id})
+        MATCH (s)-[:HAS_SENSOR]->(sen:Sensor)
         WHERE sen.topic = diag_data.topic
            OR sen.name = diag_data.hardware_id
-           OR diag_data.name CONTAINS sen.name
-        CREATE (d)-[:REPORTS_ON]->(sen)
+           OR sen.name = diag_data.name
+        MERGE (d)-[:REPORTS_ON]->(sen)
         """
         with self.driver.session() as session:
-            session.run(query, {"session_id": session_id, "diagnostics_list": diagnostics})
+            session.run(create_query, {"session_id": session_id, "diagnostics_list": diagnostics})
+            session.run(link_query, {"session_id": session_id, "diagnostics_list": diagnostics})
             
     def write_logs(self, session_id: str, logs: list[dict]):
         """

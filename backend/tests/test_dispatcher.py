@@ -6,11 +6,10 @@
 
 Reuses MockRouter (mock LLM) and the autouse `mock_neo4j` fixture.
 
-NOTE (issues #53/#54): `route_after_dispatch` blocks the replan branch when
-`replan_count >= MAX_REPLANS` (i.e. once 5 replans have happened it will no
-longer route to replan), while `replan_node` itself only bails to a partial
-compose when its post-increment count is STRICTLY > MAX_REPLANS (6). The two
-boundaries disagree by one. These tests pin the router's CURRENT thresholds.
+Issues #53/#54 (FIXED): all three boundaries now align on MAX_REPLANS (5).
+`route_after_dispatch` routes to replan only while `replan_count < MAX_REPLANS`;
+once the cap is reached it falls through to the composer, which then emits
+`partial=True`. `replan_node` no longer has a strictly-greater-than off-by-one.
 """
 from __future__ import annotations
 
@@ -164,10 +163,10 @@ def test_route_missing_confidence_defaults_to_high():
 
 
 def test_route_stops_replanning_at_max_replans():
-    """NOTE (issues #53/#54): once replan_count has reached MAX_REPLANS (5),
+    """Issues #53/#54 (FIXED): once replan_count has reached MAX_REPLANS (5),
     the router no longer routes to replan even on low confidence — it falls
-    through to composer. This is one LESS than the replan_node's own
-    strictly-greater-than bail boundary (6)."""
+    through to composer, which emits partial=True. All three boundaries align
+    on MAX_REPLANS."""
     plan = [{"idx": 0, "specialist": "RootCauseAnalyst", "intent": "a"}]
     outputs = {"RootCauseAnalyst": {"confidence": 0.0}}  # would normally replan
     state = _state(plan=plan, plan_idx=1, specialist_outputs=outputs, replan_count=MAX_REPLANS)

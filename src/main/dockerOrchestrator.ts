@@ -275,14 +275,21 @@ class DockerOrchestrator {
 
   /**
    * Resolves the correct image tag for a DataPilot service image.
-   * If packaged, tags with the app version (e.g. "1.2.3").
-   * If unpackaged (dev mode), defaults to keeping the tag as defined (typically "latest").
+   * If `DATAPILOT_IMAGE_TAG` is set, it overrides the tag in dev and packaged mode.
+   * If packaged and no override is set, tags with the app version (e.g. "1.2.3").
+   * If unpackaged and no override is set, defaults to keeping the tag as defined.
    */
   private resolveImageTag(imageName: string): string {
-    if (app.isPackaged && imageName.includes("datapilot")) {
+    if (imageName.includes("datapilot")) {
       const lastColon = imageName.lastIndexOf(":");
       const baseImage = lastColon !== -1 ? imageName.slice(0, lastColon) : imageName;
-      return `${baseImage}:${app.getVersion()}`;
+      const overrideTag = process.env.DATAPILOT_IMAGE_TAG?.trim();
+      if (overrideTag && overrideTag.length > 0) {
+        return `${baseImage}:${overrideTag}`;
+      }
+      if (app.isPackaged) {
+        return `${baseImage}:${app.getVersion()}`;
+      }
     }
     return imageName;
   }

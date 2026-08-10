@@ -38,13 +38,23 @@ interface ErrorEventData {
 }
 
 export function useChat(): UseChatReturn {
-  const { addMessage, updateLastMessage, updatePlanStep, setStreaming } =
+  const { addMessage, updateLastMessage, updateMessageById, updatePlanStep, setStreaming } =
     useChatStore();
   const sessionId = useSessionStore((s) => s.sessionId);
   const setTabData = useSessionStore((s) => s.setTabData);
   const defaultProvider = useSettingsStore((s) => s.defaultProvider);
   const defaultModel = useSettingsStore((s) => s.defaultModel);
   const abortRef = useRef<AbortController | null>(null);
+  // The assistant message the in-flight stream is writing to. stop() targets it
+  // by id so the marker never lands on a trailing system/error message (#36).
+  const activeAssistantIdRef = useRef<string | null>(null);
+
+  // Mirror the live sessionId into a ref so async SSE callbacks read the current
+  // session, not the value captured in send()'s closure (#35).
+  const sessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   // Abort in-flight stream on unmount
   useEffect(() => {
@@ -54,13 +64,14 @@ export function useChat(): UseChatReturn {
   }, []);
 
   const send = (message: string) => {
-    const targetSessionId = sessionId || "general";
+    const targetSessionId = sessionIdRef.current || "general";
 
     // Abort any in-flight request
     abortRef.current?.abort();
 
     const msgId = crypto.randomUUID();
     const assistantId = crypto.randomUUID();
+    activeAssistantIdRef.current = assistantId;
     const now = new Date().toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
@@ -115,7 +126,7 @@ export function useChat(): UseChatReturn {
                   .filter((c) => c.text)
               : undefined;
 
-          const actions: ChatAction[] = sessionId
+          const actions: ChatAction[] = sessionIdRef.current
             ? [
                 {
                   iconName: "Clock",
@@ -147,10 +158,12 @@ export function useChat(): UseChatReturn {
           setStreaming(false);
         } else if (event === "kgraph") {
           // The turn distilled new facts into the knowledge graph — refetch it
-          // so they appear without reloading the session.
-          if (sessionId) {
+          // so they appear without reloading the session. Read the live session
+          // id so a mid-stream session switch resolves against the right one (#35).
+          const liveSessionId = sessionIdRef.current;
+          if (liveSessionId) {
             api
-              .getKGraph(sessionId)
+              .getKGraph(liveSessionId)
               .then((g) => setTabData("kgraph", g))
               .catch((err) =>
                 console.error("knowledge graph refresh failed:", err),
@@ -177,7 +190,11 @@ export function useChat(): UseChatReturn {
       abortRef.current = null;
     }
     setStreaming(false);
-    updateLastMessage((m) => {
+    // Target the assistant message this stream was writing to by id, so the
+    // marker never lands on a trailing system/error message (#36).
+    const activeId = activeAssistantIdRef.current;
+    if (!activeId) return;
+    updateMessageById(activeId, (m) => {
       if (!m.summary) {
         return {
           ...m,

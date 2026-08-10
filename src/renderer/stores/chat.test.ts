@@ -54,20 +54,42 @@ describe("useChatStore", () => {
       expect(useChatStore.getState().messages).toEqual([]);
     });
 
-    // NOTE: issue #36 — updateLastMessage edits messages[last] blindly with no
-    // role check. If the last message is the USER's (e.g. the assistant
-    // placeholder has not been appended yet), the streamed assistant content
-    // overwrites the user's message. This test characterizes that CURRENT,
-    // buggy behavior: a "user" message gets its text clobbered.
-    it("blindly overwrites the last message even if it is the user's (issue #36)", () => {
+    // issue #36 — updateLastMessage must only mutate the last message when it is
+    // an assistant message. If the last message is the USER's (or a system error),
+    // the streamed assistant content must NOT clobber it.
+    it("does not overwrite the last message when it is not an assistant (issue #36)", () => {
       useChatStore.getState().addMessage(msg("u1", { role: "user", text: "hi" }));
       useChatStore
         .getState()
         .updateLastMessage((m) => ({ ...m, text: "assistant token" }));
       const last = useChatStore.getState().messages.at(-1)!;
-      // Role is left as "user" but the text was replaced — the bug.
+      // The user's message is left untouched — the fix.
       expect(last.role).toBe("user");
-      expect(last.text).toBe("assistant token");
+      expect(last.text).toBe("hi");
+    });
+  });
+
+  describe("updateMessageById", () => {
+    it("patches only the message with the matching id", () => {
+      useChatStore.getState().addMessage(msg("1", { role: "user", text: "hi" }));
+      useChatStore.getState().addMessage(msg("2", { text: "assistant" }));
+      useChatStore.getState().addMessage(msg("3", { role: "system", text: "err" }));
+      useChatStore
+        .getState()
+        .updateMessageById("2", (m) => ({ ...m, summary: "done" }));
+      const { messages } = useChatStore.getState();
+      expect(messages[0]).toMatchObject({ id: "1", text: "hi" });
+      expect(messages[0].summary).toBeUndefined();
+      expect(messages[1]).toMatchObject({ id: "2", summary: "done" });
+      expect(messages[2]).toMatchObject({ id: "3", text: "err" });
+    });
+
+    it("is a no-op when no message matches the id", () => {
+      useChatStore.getState().addMessage(msg("1", { text: "a" }));
+      useChatStore
+        .getState()
+        .updateMessageById("missing", (m) => ({ ...m, text: "b" }));
+      expect(useChatStore.getState().messages.at(-1)!.text).toBe("a");
     });
   });
 
