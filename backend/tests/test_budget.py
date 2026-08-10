@@ -10,12 +10,39 @@ not exist to test.
 """
 from __future__ import annotations
 
-from app.agent.budget import estimate_cost_usd, total_tokens_in_audit
+from app.agent.budget import (
+    estimate_cost_usd,
+    per_turn_cap_exceeded,
+    session_cap_exceeded,
+    total_tokens_in_audit,
+)
 from app.agent.state import (
     PER_SESSION_TOKEN_CAP,
     PER_TURN_TOKEN_CAP,
     AuditEvent,
 )
+
+
+# ── enforcement helpers (issue #42) ──────────────────────────────────────────
+
+
+def test_per_turn_cap_not_exceeded_under_budget():
+    audit: list[AuditEvent] = [{"step_kind": "compose", "tokens_in": 100, "tokens_out": 50}]
+    assert per_turn_cap_exceeded(audit) is False
+
+
+def test_per_turn_cap_exceeded_at_or_over_cap():
+    audit: list[AuditEvent] = [{"step_kind": "compose", "tokens_in": PER_TURN_TOKEN_CAP, "tokens_out": 0}]
+    assert per_turn_cap_exceeded(audit) is True
+
+
+def test_session_cap_not_exceeded_under_budget():
+    assert session_cap_exceeded(PER_SESSION_TOKEN_CAP - 1) is False
+
+
+def test_session_cap_exceeded_at_or_over_cap():
+    assert session_cap_exceeded(PER_SESSION_TOKEN_CAP) is True
+    assert session_cap_exceeded(PER_SESSION_TOKEN_CAP * 3) is True
 
 
 # ── total_tokens_in_audit ────────────────────────────────────────────────────

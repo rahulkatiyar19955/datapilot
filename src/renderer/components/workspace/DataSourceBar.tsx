@@ -105,6 +105,7 @@ export function DataSourceBar(): JSX.Element {
         <button
           className="btn ghost icon sm"
           title="Share (not available)"
+          aria-label="Share"
           disabled
         >
           <Icon.Share size={13} />
@@ -112,6 +113,7 @@ export function DataSourceBar(): JSX.Element {
         <button
           className="btn ghost icon sm"
           title="Download (not available)"
+          aria-label="Download"
           disabled
         >
           <Icon.Download size={13} />

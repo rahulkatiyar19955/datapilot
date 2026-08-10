@@ -1,9 +1,25 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
+# Upper bound on a single chat message. Bounding this stops oversized payloads
+# from reaching the LLM (and the prompt log) and blowing the token budget
+# before any retrieval happens (issue #67).
+MAX_MESSAGE_CHARS = 32_000
+
+# Providers the renderer may request for the composer. Constraining this to a
+# known set keeps invalid values out of routing (issue #67).
+ComposerProvider = Literal["anthropic", "openai", "gemini", "google", "ollama", "nvidia"]
+
 class SessionCreate(BaseModel):
-    filepath: str
+    filepath: str = Field(..., min_length=1)
+
+    @field_validator("filepath")
+    @classmethod
+    def _filepath_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("filepath must not be blank")
+        return v
 
 class SessionResponse(BaseModel):
     id: str
@@ -87,8 +103,8 @@ class AnomalyItem(BaseModel):
 
 class ChatRequest(BaseModel):
     """Body of POST /api/sessions/{id}/chat."""
-    message: str
-    composer_provider: Optional[str] = None   # "anthropic" | "openai" | "gemini" | "ollama"
+    message: str = Field(..., min_length=1, max_length=MAX_MESSAGE_CHARS)
+    composer_provider: Optional[ComposerProvider] = None
     composer_model: Optional[str] = None      # model id (overrides defaults)
 
 

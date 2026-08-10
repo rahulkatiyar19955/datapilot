@@ -6,7 +6,6 @@ import { Agents } from "./screens/Agents";
 import { Settings } from "./screens/Settings";
 import { Icon } from "./components/Icon";
 import { useTheme } from "./hooks/useTheme";
-import { useGlobalShortcut } from "./hooks/useGlobalShortcut";
 import { useUIStore } from "./stores/ui";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
@@ -40,8 +39,6 @@ export function App(): JSX.Element {
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const syncKeysToBackend = useSettingsStore((s) => s.syncKeysToBackend);
 
-  useGlobalShortcut();
-
   // Initial Docker status + version + subscribe to status changes.
   useEffect(() => {
     if (!window.datapilot) return;
@@ -61,6 +58,16 @@ export function App(): JSX.Element {
       void syncKeysToBackend();
     }
   }, [dockerStatus.state, syncKeysToBackend]);
+
+  // #51: "Open with DataPilot" on an already-running instance forwards the bag
+  // path here; load it like a picked/dropped file.
+  useEffect(() => {
+    if (!window.datapilot?.file?.onOpenBag) return;
+    const unsubscribe = window.datapilot.file.onOpenBag((bagPath) => {
+      if (bagPath) setPendingPath(bagPath);
+    });
+    return () => unsubscribe();
+  }, [setPendingPath]);
 
   // Global drag-and-drop listener for MCAP/bag files
   useEffect(() => {

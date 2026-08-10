@@ -184,12 +184,13 @@ export function TimelineView(): JSX.Element {
           <Icon.Zoom size={12} />
           Zoom to anomalies
         </button>
-        <button className="btn ghost icon sm" title="Filter">
+        <button className="btn ghost icon sm" title="Filter" aria-label="Filter">
           <Icon.Filter size={13} />
         </button>
         <button
           className="btn ghost icon sm"
           title="Refresh"
+          aria-label="Refresh"
           onClick={() => {
             void handleRefresh();
           }}

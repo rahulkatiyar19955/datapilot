@@ -36,6 +36,7 @@ function installDatapilotStub(overrides: Record<string, unknown> = {}) {
       get: vi.fn(async (key: string) => keychainMap.get(key) ?? null),
       set: vi.fn(async (key: string, value: string) => {
         keychainMap.set(key, value);
+        return { ok: true };
       }),
     },
     ...overrides,
@@ -142,6 +143,37 @@ describe("useSettingsStore", () => {
       expect(spy).toHaveBeenCalledWith("--color-accent", crimson.color);
     });
 
+    it("issues the independent settings/keychain reads in parallel, not serially", async () => {
+      // Instrument settings.get + keychain.get to record peak concurrency:
+      // each call holds a microtask-deferred resolution so genuinely parallel
+      // reads overlap, while serial awaits would never exceed concurrency 1.
+      let inFlight = 0;
+      let peak = 0;
+      const defer = () =>
+        new Promise<null>((resolve) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          // Resolve on a later microtask so other queued reads can start first.
+          Promise.resolve()
+            .then(() => Promise.resolve())
+            .then(() => {
+              inFlight -= 1;
+              resolve(null);
+            });
+        });
+
+      installDatapilotStub({
+        settings: { get: vi.fn(defer), set: vi.fn(async () => {}) },
+        keychain: { get: vi.fn(defer), set: vi.fn(async () => {}) },
+      });
+
+      await useSettingsStore.getState().loadSettings();
+
+      // 20 settings reads + 6 keychain reads run concurrently; serial awaits
+      // would cap peak at 1. Require substantial overlap.
+      expect(peak).toBeGreaterThan(5);
+    });
+
     it("recovers and clears the loading flag if a datapilot call throws", async () => {
       installDatapilotStub({
         app: {
@@ -211,12 +243,33 @@ describe("useSettingsStore", () => {
       expect(useSettingsStore.getState().apiKeys.openai).toBe("");
     });
 
-    it("updates the apiKeys slice, the keychain, and the backend", async () => {
+    it("updates the slice and keychain but never POSTs the key to the backend (#39)", async () => {
       const { keychainMap } = installDatapilotStub();
       await useSettingsStore.getState().setApiKey("openai", "sk-test");
       expect(useSettingsStore.getState().apiKeys.openai).toBe("sk-test");
       expect(keychainMap.get("openai")).toBe("sk-test");
-      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("openai", "sk-test");
+      // #39: the secret must stay in safeStorage; the main process delivers it
+      // to the backend out of band (secret file), so no renderer→HTTP POST.
+      expect(mockedUpdateBackendKey).not.toHaveBeenCalledWith(
+        "openai",
+        "sk-test",
+      );
+    });
+
+    it("logs a failure when the keychain refuses to persist (#40/#51)", async () => {
+      installDatapilotStub({
+        keychain: {
+          get: vi.fn(async () => null),
+          set: vi.fn(async () => ({
+            ok: false,
+            error: "Secure storage unavailable",
+          })),
+        },
+      });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await useSettingsStore.getState().setApiKey("openai", "sk-test");
+      expect(errSpy).toHaveBeenCalled();
+      errSpy.mockRestore();
     });
 
     it("preserves other providers' keys when setting one", async () => {
@@ -229,7 +282,7 @@ describe("useSettingsStore", () => {
   });
 
   describe("syncKeysToBackend", () => {
-    it("pushes only non-empty keys plus default provider/model", async () => {
+    it("syncs default provider/model but never the secret API keys (#39)", async () => {
       useSettingsStore.setState({
         apiKeys: {
           anthropic: "sk-ant",
@@ -244,9 +297,12 @@ describe("useSettingsStore", () => {
       });
       await useSettingsStore.getState().syncKeysToBackend();
 
-      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("anthropic", "sk-ant");
-      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("google", "g-key");
-      expect(mockedUpdateBackendKey).not.toHaveBeenCalledWith("openai", "");
+      // #39: provider keys are never POSTed; only the non-secret defaults are.
+      expect(mockedUpdateBackendKey).not.toHaveBeenCalledWith(
+        "anthropic",
+        "sk-ant",
+      );
+      expect(mockedUpdateBackendKey).not.toHaveBeenCalledWith("google", "g-key");
       expect(mockedUpdateBackendKey).toHaveBeenCalledWith(
         "default_provider",
         "google",
@@ -291,9 +347,11 @@ describe("useSettingsStore", () => {
       expect(mockedClearAllSessions).toHaveBeenCalledTimes(1);
       // Every persisted setting key was overwritten with an empty string.
       expect(settingsMap.get("accent_color")).toBe("");
-      // Every provider key was cleared locally and on the backend.
+      // Every provider key was cleared from the secure store; the cleared keys
+      // are NOT POSTed to the backend (#39) — the main process re-syncs the
+      // secret file from safeStorage instead.
       expect(keychainMap.get("openai")).toBe("");
-      expect(mockedUpdateBackendKey).toHaveBeenCalledWith("openai", "");
+      expect(mockedUpdateBackendKey).not.toHaveBeenCalledWith("openai", "");
       // loadSettings ran at the end, restoring defaults and clearing loading.
       const s = useSettingsStore.getState();
       expect(s.loading).toBe(false);

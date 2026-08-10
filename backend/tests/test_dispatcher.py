@@ -23,7 +23,7 @@ from app.agent.dispatcher import (
     dispatcher_node,
     route_after_dispatch,
 )
-from app.agent.state import MAX_REPLANS, GraphState
+from app.agent.state import MAX_REPLANS, PER_TURN_TOKEN_CAP, GraphState
 from tests.fixtures.mock_llm import MockRouter
 
 
@@ -59,6 +59,14 @@ def test_dispatcher_runs_specialist_and_advances():
     assert "confidence" in result
     # Audit trail forwarded from the specialist.
     assert any(e["step_kind"] == "specialist_start" for e in out["audit_trail"])
+
+
+def test_dispatcher_decrements_token_budget_remaining():
+    # The per-turn budget field is actually updated after a step runs (issue #42).
+    plan = [{"idx": 0, "specialist": "RootCauseAnalyst", "intent": "trace"}]
+    out = asyncio.run(dispatcher_node(_state(plan=plan), router=MockRouter()))
+    assert "token_budget_remaining" in out
+    assert 0 <= out["token_budget_remaining"] <= PER_TURN_TOKEN_CAP
 
 
 def test_dispatcher_returns_empty_when_plan_exhausted():
@@ -177,3 +185,40 @@ def test_route_no_replan_when_idx_zero():
     plan = [{"idx": 0, "specialist": "RootCauseAnalyst", "intent": "a"}]
     outputs = {"RootCauseAnalyst": {"confidence": 0.0}}
     assert route_after_dispatch(_state(plan=plan, plan_idx=0, specialist_outputs=outputs)) == "dispatcher"
+
+
+# ── route_after_dispatch: per-turn token budget (issue #42) ──────────────────
+
+
+def test_route_composes_when_per_turn_token_cap_exceeded():
+    """Once the turn has burned the per-turn token cap, the dispatcher bails to
+    the composer even though plan steps remain — no unbounded dispatch/replan."""
+    plan = [
+        {"idx": 0, "specialist": "RootCauseAnalyst", "intent": "a"},
+        {"idx": 1, "specialist": "AnomalyDetector", "intent": "b"},
+    ]
+    outputs = {"RootCauseAnalyst": {"confidence": 0.9}}  # healthy, would normally continue
+    audit = [{"step_kind": "compose", "tokens_in": PER_TURN_TOKEN_CAP, "tokens_out": 0}]
+    state = _state(plan=plan, plan_idx=1, specialist_outputs=outputs, audit_trail=audit)
+    assert route_after_dispatch(state) == "composer"
+
+
+def test_route_token_budget_overrides_replan():
+    # Even a low-confidence result that would replan is short-circuited to
+    # compose once the per-turn cap is hit.
+    plan = [{"idx": 0, "specialist": "RootCauseAnalyst", "intent": "a"}]
+    outputs = {"RootCauseAnalyst": {"confidence": 0.0}}
+    audit = [{"step_kind": "compose", "tokens_in": PER_TURN_TOKEN_CAP + 1, "tokens_out": 0}]
+    state = _state(plan=plan, plan_idx=1, specialist_outputs=outputs, audit_trail=audit)
+    assert route_after_dispatch(state) == "composer"
+
+
+def test_route_continues_when_under_token_cap():
+    plan = [
+        {"idx": 0, "specialist": "RootCauseAnalyst", "intent": "a"},
+        {"idx": 1, "specialist": "AnomalyDetector", "intent": "b"},
+    ]
+    outputs = {"RootCauseAnalyst": {"confidence": 0.9}}
+    audit = [{"step_kind": "compose", "tokens_in": 500, "tokens_out": 200}]
+    state = _state(plan=plan, plan_idx=1, specialist_outputs=outputs, audit_trail=audit)
+    assert route_after_dispatch(state) == "dispatcher"

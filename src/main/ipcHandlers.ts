@@ -9,17 +9,40 @@ import {
 import fs from "fs";
 import path from "path";
 import { dockerOrchestrator } from "./dockerOrchestrator";
-import type { DockerStatus, StorageUsage } from "@shared/ipc";
+import type {
+  DockerStatus,
+  KeychainSetResult,
+  StorageUsage,
+} from "@shared/ipc";
 import {
   IpcValidationError,
   assertKnownService,
   assertSafeKey,
+  assertSettableKey,
   assertString,
   assertSubId,
   assertTheme,
   isPathWithinRoot,
   isUnsafeOpenTarget,
 } from "./ipcValidation";
+import {
+  decodeSecretBlob,
+  encodeSecretBlob,
+  type SecretCrypto,
+} from "./secrets";
+import { getPathUsageBounded } from "./storageUsage";
+
+/** safeStorage adapter for the pure secret helpers (`./secrets`). */
+const safeStorageCrypto: SecretCrypto = {
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (plaintext: string) => safeStorage.encryptString(plaintext),
+  decryptString: (encrypted: Buffer) => safeStorage.decryptString(encrypted),
+};
+
+// Bound the storage:usage walk so a hostile or pathological tree can neither
+// freeze the main thread nor run unbounded (#37).
+const STORAGE_USAGE_MAX_DEPTH = 16;
+const STORAGE_USAGE_MAX_ENTRIES = 200_000;
 
 // Active log-stream unsubscribe callbacks, keyed by per-renderer subscription id.
 const activeLogStreams = new Map<string, () => void>();
@@ -47,12 +70,28 @@ function readSettings(): Record<string, string> {
   }
 }
 
-function writeSettings(settings: Record<string, string>): void {
+// Returns true on success. Callers that must surface write failures to the
+// renderer (e.g. keychain:set, #51) check the result instead of assuming the
+// write succeeded.
+function writeSettings(settings: Record<string, string>): boolean {
   try {
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
+    // This file holds the safeStorage-encrypted `secure_*` API-key blobs, so it
+    // must be owner-only like the secret file derived from it. On Linux with no
+    // OS keyring, safeStorage falls back to the `basic_text` backend (whose key
+    // is a well-known constant) while still reporting encryption as available —
+    // a world-readable file would then be recoverable plaintext.
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    // `mode` only applies when the file is created, so chmod an existing one to
+    // tighten installs upgrading from the previous default (0644).
+    fs.chmodSync(settingsPath, 0o600);
+    return true;
   } catch (err) {
     console.error("Failed to write settings:", err);
+    return false;
   }
 }
 
@@ -128,58 +167,30 @@ function validateOpenPath(value: unknown): {
   return { canonicalPath, isDirectory: stats.isDirectory() };
 }
 
-function getPathUsage(targetPath: string): StorageUsage {
-  const resolvedPath = resolveUserPath(targetPath);
-  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
-    return {
-      path: targetPath,
-      resolvedPath,
-      exists: false,
-      totalBytes: 0,
-      fileCount: 0,
-    };
+/**
+ * Computes the allow-list of roots `storage:usage` may report on (#37): the
+ * app's userData dir, the default bag locations, and any user-configured cache /
+ * bag-archive directories. A path outside all of these is rejected.
+ */
+function getStorageUsageRoots(): string[] {
+  const home = app.getPath("home");
+  const roots = [
+    app.getPath("userData"),
+    path.join(home, "datapilot", "bags"), // default bag archive root
+    path.join(home, "datapilot_bags"), // default orchestrator bag dir
+  ];
+  const settings = readSettings();
+  for (const key of ["cache_dir", "bag_archive_root"]) {
+    const value = settings[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      roots.push(resolveUserPath(value.trim()));
+    }
   }
-
-  let totalBytes = 0;
-  let fileCount = 0;
-
-  const walk = (current: string): void => {
-    let stats: fs.Stats;
-    try {
-      stats = fs.lstatSync(current);
-    } catch {
-      return;
-    }
-
-    if (stats.isSymbolicLink()) return;
-    if (stats.isFile()) {
-      totalBytes += stats.size;
-      fileCount += 1;
-      return;
-    }
-    if (!stats.isDirectory()) return;
-
-    let entries: string[];
-    try {
-      entries = fs.readdirSync(current);
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      walk(path.join(current, entry));
-    }
-  };
-
-  walk(resolvedPath);
-
-  return {
-    path: targetPath,
-    resolvedPath,
-    exists: true,
-    totalBytes,
-    fileCount,
-  };
+  const envBagRoot = process.env.DATAPILOT_BAG_ROOT;
+  if (envBagRoot && envBagRoot.trim().length > 0) {
+    roots.push(resolveUserPath(envBagRoot.trim()));
+  }
+  return roots;
 }
 
 export function registerIpcHandlers(): void {
@@ -316,7 +327,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     "settings:set",
     async (_event, rawKey: unknown, rawValue: unknown): Promise<void> => {
-      const key = assertSafeKey(rawKey);
+      // assertSettableKey additionally rejects privileged keys (e.g.
+      // docker_socket, #31) that the renderer must not be able to write.
+      const key = assertSettableKey(rawKey);
       const value = assertString(rawValue, "value");
       const settings = readSettings();
       settings[key] = value;
@@ -330,21 +343,13 @@ export function registerIpcHandlers(): void {
     async (_event, rawKey: unknown): Promise<string | null> => {
       const key = assertSafeKey(rawKey);
       const settings = readSettings();
-      const encryptedValue = settings[`secure_${key}`];
-      if (!encryptedValue) return null;
-
+      const blob = settings[`secure_${key}`];
+      if (!blob) return null;
       try {
-        if (safeStorage.isEncryptionAvailable()) {
-          const decryptedBuffer = safeStorage.decryptString(
-            Buffer.from(encryptedValue, "base64"),
-          );
-          return decryptedBuffer;
-        } else {
-          // Fallback if encryption is not supported (e.g. headless/mock env)
-          return Buffer.from(encryptedValue, "base64").toString("utf-8");
-        }
-      } catch (err) {
-        console.error(`Failed to decrypt key: ${key}`, err);
+        return decodeSecretBlob(blob, safeStorageCrypto);
+      } catch {
+        // Never log the key or the underlying error (may echo the value).
+        console.error(`Failed to decrypt stored key: ${key}`);
         return null;
       }
     },
@@ -352,26 +357,40 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "keychain:set",
-    async (_event, rawKey: unknown, rawValue: unknown): Promise<void> => {
+    async (
+      _event,
+      rawKey: unknown,
+      rawValue: unknown,
+    ): Promise<KeychainSetResult> => {
       const key = assertSafeKey(rawKey);
       const value = assertString(rawValue, "value");
       const settings = readSettings();
+
       try {
-        if (safeStorage.isEncryptionAvailable()) {
-          const encryptedBase64 = safeStorage
-            .encryptString(value)
-            .toString("base64");
-          settings[`secure_${key}`] = encryptedBase64;
+        if (value === "") {
+          // Clearing a key removes the stored blob entirely.
+          delete settings[`secure_${key}`];
         } else {
-          // Fallback if encryption is not supported
-          settings[`secure_${key}`] = Buffer.from(value, "utf-8").toString(
-            "base64",
-          );
+          // encodeSecretBlob throws when encryption is unavailable rather than
+          // silently persisting recoverable base64 (#40).
+          settings[`secure_${key}`] = encodeSecretBlob(value, safeStorageCrypto);
         }
-        writeSettings(settings);
       } catch (err) {
-        console.error(`Failed to encrypt key: ${key}`, err);
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : "Failed to store key",
+        };
       }
+
+      // #51: surface a write failure instead of swallowing it.
+      if (!writeSettings(settings)) {
+        return { ok: false, error: "Failed to write the settings file" };
+      }
+
+      // #39/#32: re-deliver keys to the backend out of band (secret file), never
+      // via the renderer. Fire-and-forget; failures are logged, not fatal.
+      void dockerOrchestrator.syncSecrets();
+      return { ok: true };
     },
   );
 
@@ -401,11 +420,38 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     "storage:usage",
     async (_event, rawTargetPath: unknown): Promise<StorageUsage> => {
-      // Basic type validation only. TODO(#37): add path-containment checks and
-      // an async / bounded directory walk to prevent traversal + DoS on a
-      // hostile or pathological path. That hardening is tracked separately.
       const targetPath = assertString(rawTargetPath, "path");
-      return getPathUsage(targetPath);
+      const resolvedPath = resolveUserPath(targetPath);
+
+      // A blank path is "no directory configured", not an error — report empty
+      // so the renderer's storage panel renders cleanly.
+      if (!resolvedPath) {
+        return {
+          path: targetPath,
+          resolvedPath,
+          exists: false,
+          totalBytes: 0,
+          fileCount: 0,
+        };
+      }
+
+      // #37: constrain to an allow-list of roots and walk asynchronously with
+      // depth/entry caps. getPathUsageBounded throws IpcValidationError for a
+      // path outside the allowed roots (rejecting renderer path-probing).
+      const usage = await getPathUsageBounded(resolvedPath, {
+        allowedRoots: getStorageUsageRoots(),
+        maxDepth: STORAGE_USAGE_MAX_DEPTH,
+        maxEntries: STORAGE_USAGE_MAX_ENTRIES,
+      });
+
+      return {
+        path: targetPath,
+        resolvedPath,
+        exists: usage.exists,
+        totalBytes: usage.totalBytes,
+        fileCount: usage.fileCount,
+        truncated: usage.truncated,
+      };
     },
   );
 }

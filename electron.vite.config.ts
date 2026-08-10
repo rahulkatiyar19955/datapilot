@@ -42,6 +42,11 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react(), tailwindcss()],
+    // Inject a real build timestamp at bundle time so the About screen shows the
+    // date this build was produced (not the date the app happens to be running).
+    define: {
+      __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+    },
     build: {
       outDir: resolve(__dirname, 'out/renderer'),
       rollupOptions: {

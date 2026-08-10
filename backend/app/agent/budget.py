@@ -8,7 +8,11 @@ Numbers come from `docs/implementation.md` §14:
 """
 from __future__ import annotations
 
-from app.agent.state import AuditEvent
+from app.agent.state import (
+    PER_SESSION_TOKEN_CAP,
+    PER_TURN_TOKEN_CAP,
+    AuditEvent,
+)
 
 
 def total_tokens_in_audit(audit: list[AuditEvent]) -> int:
@@ -26,3 +30,16 @@ def estimate_cost_usd(audit: list[AuditEvent]) -> float:
     assume a $1 / 1M tokens blend so the renderer can show a non-zero figure.
     """
     return round(total_tokens_in_audit(audit) / 1_000_000.0, 4)
+
+
+def per_turn_cap_exceeded(audit: list[AuditEvent]) -> bool:
+    """True once this turn's audit usage has reached the per-turn token cap
+    (issue #42). Callers route the turn to the composer (marked partial) so a
+    pathological turn can't dispatch/replan without a ceiling."""
+    return total_tokens_in_audit(audit) >= PER_TURN_TOKEN_CAP
+
+
+def session_cap_exceeded(prior_session_tokens: int) -> bool:
+    """True once a session's cumulative usage has reached the per-session token
+    cap (issue #42). Summed from prior `SessionCostRecord` rows before a turn."""
+    return int(prior_session_tokens or 0) >= PER_SESSION_TOKEN_CAP

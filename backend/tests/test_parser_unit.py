@@ -19,7 +19,47 @@ from app.services.parser import (
     _extract_sensor_info,
     _seconds_from_log_t,
     ingestion_parser,
+    scope_log_ids,
 )
+
+
+# ---------------------------------------------------------------------------
+# scope_log_ids  (issue #68 — globally-unique Log identity)
+# ---------------------------------------------------------------------------
+
+class TestScopeLogIds:
+    def test_prefixes_log_ids_with_session(self):
+        parsed = {"logs": [{"id": "l_1"}, {"id": "l_2"}], "anomalies": []}
+        scope_log_ids("sessA", parsed)
+        assert [l["id"] for l in parsed["logs"]] == ["sessA:l_1", "sessA:l_2"]
+
+    def test_remaps_anomaly_source_log_ids_consistently(self):
+        parsed = {
+            "logs": [{"id": "l_1"}, {"id": "l_2"}],
+            "anomalies": [{"id": "a_1", "source_log_id": "l_2"}],
+        }
+        scope_log_ids("sessA", parsed)
+        # The anomaly still points at the (now-scoped) same log.
+        log_ids = {l["id"] for l in parsed["logs"]}
+        assert parsed["anomalies"][0]["source_log_id"] == "sessA:l_2"
+        assert parsed["anomalies"][0]["source_log_id"] in log_ids
+
+    def test_two_sessions_do_not_collide(self):
+        a = {"logs": [{"id": "l_1"}], "anomalies": []}
+        b = {"logs": [{"id": "l_1"}], "anomalies": []}
+        scope_log_ids("sessA", a)
+        scope_log_ids("sessB", b)
+        assert a["logs"][0]["id"] != b["logs"][0]["id"]
+
+    def test_idempotent_when_already_scoped(self):
+        parsed = {"logs": [{"id": "sessA:l_1"}], "anomalies": []}
+        scope_log_ids("sessA", parsed)
+        assert parsed["logs"][0]["id"] == "sessA:l_1"
+
+    def test_null_anomaly_source_left_alone(self):
+        parsed = {"logs": [{"id": "l_1"}], "anomalies": [{"id": "a_1", "source_log_id": None}]}
+        scope_log_ids("sessA", parsed)
+        assert parsed["anomalies"][0]["source_log_id"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -103,11 +143,11 @@ class TestSecondsFromLogT:
     def test_two_part_returns_zero(self):
         assert _seconds_from_log_t("01:30") == 0.0
 
-    def test_day_form_returns_zero_BUG(self):
-        # NOTE: timestamp bug, issue #70 — same defect as causal_rules. The
-        # "N day, H:MM:SS" form produced by str(timedelta) for >24h durations
-        # fails to parse and silently yields 0.0.
-        assert _seconds_from_log_t(str(timedelta(seconds=90061.5))) == 0.0
+    def test_day_form_is_parsed(self):
+        # Fixed (issue #70) — same change as causal_rules.log_time_to_seconds.
+        # The "N day, H:MM:SS" form produced by str(timedelta) for >24h
+        # durations is now parsed instead of silently yielding 0.0.
+        assert _seconds_from_log_t(str(timedelta(seconds=90061.5))) == pytest.approx(90061.5)
 
 
 # ---------------------------------------------------------------------------

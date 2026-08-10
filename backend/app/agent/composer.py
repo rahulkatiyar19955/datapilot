@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.agent.budget import estimate_cost_usd
+from app.agent.budget import estimate_cost_usd, per_turn_cap_exceeded
 from app.agent.state import (
     MAX_REPLANS,
     AuditEvent,
@@ -180,14 +180,17 @@ async def composer_node(state: GraphState, *, router: LLMRouter) -> dict[str, An
         est_cost_usd=estimate_cost_usd(full_audit),
     )
 
-    # `partial` is set when the turn could not fully resolve: either the replan
-    # cap was exhausted (replan_count reached MAX_REPLANS) or the replan node
-    # explicitly forced a compose on overflow (issues #53/#54). All three
-    # thresholds (route_after_dispatch, replan_node, here) align on MAX_REPLANS.
+    # `partial` is set when the turn could not fully resolve: the replan cap was
+    # exhausted (replan_count reached MAX_REPLANS), the replan node explicitly
+    # forced a compose on overflow (issues #53/#54), or the per-turn token budget
+    # ran out (issue #42). All three replan thresholds (route_after_dispatch,
+    # replan_node, here) align on MAX_REPLANS.
     partial = bool(
         state.get("force_compose")
         or int(state.get("replan_count", 0) or 0) >= MAX_REPLANS
+        or per_turn_cap_exceeded(full_audit)
     )
+
     envelope: ChatMessageEnvelope = ChatMessageEnvelope(
         response=response_text,
         plan=list(state.get("plan") or []),

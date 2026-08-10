@@ -60,19 +60,19 @@ class TestLogTimeToSeconds:
         # through to float("05:30") which raises → 0.0.
         assert log_time_to_seconds("05:30") == 0.0
 
-    def test_day_form_returns_zero_BUG(self):
-        # NOTE: timestamp bug, issue #70. For bags longer than 24h (or any log
-        # whose timestamp crosses a day boundary) str(timedelta) emits the
-        # "N day, H:MM:SS" form, e.g. "1 day, 1:01:01.500000". Splitting on ":"
-        # yields ["1 day, 1", "01", "01.500000"] and float("1 day, 1") raises,
-        # so this CURRENTLY returns 0.0 instead of the true ~90061.5 seconds.
+    def test_day_form_is_parsed(self):
+        # Fixed (issue #70). For bags longer than 24h (or any log whose
+        # timestamp crosses a day boundary) str(timedelta) emits the
+        # "N day, H:MM:SS" form, e.g. "1 day, 1:01:01.500000". The parser now
+        # strips the "N day(s)," prefix and adds N*86400, so the true seconds
+        # are recovered instead of silently collapsing to 0.0.
         day_form = str(timedelta(seconds=90061.5))  # '1 day, 1:01:01.500000'
         assert "day" in day_form
-        assert log_time_to_seconds(day_form) == 0.0
+        assert log_time_to_seconds(day_form) == pytest.approx(90061.5)
 
-    def test_day_form_literal_returns_zero_BUG(self):
-        # NOTE: timestamp bug, issue #70 (same root cause, explicit literal).
-        assert log_time_to_seconds("2 days, 3:04:05.000000") == 0.0
+    def test_multi_day_form_literal_is_parsed(self):
+        # Plural "N days," prefix (issue #70). 2*86400 + 3*3600 + 4*60 + 5.
+        assert log_time_to_seconds("2 days, 3:04:05.000000") == pytest.approx(183845.0)
 
 
 # ---------------------------------------------------------------------------

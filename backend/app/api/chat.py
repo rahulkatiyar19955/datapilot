@@ -15,11 +15,13 @@ shape. Composer token streaming is layered on after the graph completes
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import time
 import uuid
 from contextlib import ExitStack
+from datetime import date, datetime
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -41,9 +43,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["chat"])
 
 
+def _json_default(obj: Any) -> Any:
+    """Typed JSON fallback (issue #77).
+
+    `default=str` blindly `repr`-stringifies non-serializable values, which can
+    silently corrupt SSE/persisted payloads (e.g. a `datetime` or a `bytes`
+    `thought_signature`). Encode the types we actually expect properly; fall
+    back to `str` only for anything still unforeseen.
+    """
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, (bytes, bytearray)):
+        return base64.b64encode(bytes(obj)).decode("ascii")
+    return str(obj)
+
+
 def _format_sse(event: str, data: Any) -> dict[str, str]:
     """sse-starlette wants {event, data} where data is a JSON string."""
-    return {"event": event, "data": json.dumps(data, default=str)}
+    return {"event": event, "data": json.dumps(data, default=_json_default)}
+
+
+def _error_event(code: str, exc: Exception, *, recoverable: bool) -> dict[str, str]:
+    """Build a sanitized SSE `error` frame (issue #63).
+
+    The raw exception string can embed internal hostnames/paths/keys, so the
+    client only ever sees a fixed message plus a correlation id; the full
+    detail is logged server-side under that id.
+    """
+    correlation_id = uuid.uuid4().hex
+    logger.error("chat error [%s] code=%s: %r", correlation_id, code, exc, exc_info=True)
+    return _format_sse("error", {
+        "code": code,
+        "message": "An internal error occurred. See server logs for details.",
+        "correlation_id": correlation_id,
+        "recoverable": recoverable,
+    })
 
 
 def _session_summary_string(record: SessionRecord) -> str:
@@ -189,12 +223,25 @@ async def chat(
                     logger.exception("chat: persistence failed")
 
             except Exception as exc:
-                logger.exception("chat: general chat failed")
-                yield _format_sse("error", {
-                    "code": "chat_error",
-                    "message": str(exc),
-                    "recoverable": False,
-                })
+                yield _error_event("chat_error", exc, recoverable=False)
+            return
+
+        # Per-session token budget (issue #42): sum prior turns' usage and refuse
+        # a new turn once the session cap is reached, before spending more.
+        from app.agent.budget import session_cap_exceeded
+        prior_res = await db.execute(
+            select(SessionCostRecord).where(SessionCostRecord.session_id == session_id)
+        )
+        prior_tokens = sum(
+            int(r.tokens_in or 0) + int(r.tokens_out or 0)
+            for r in prior_res.scalars().all()
+        )
+        if session_cap_exceeded(prior_tokens):
+            yield _format_sse("error", {
+                "code": "session_budget_exceeded",
+                "message": "Session token budget exhausted. Start a new session to continue.",
+                "recoverable": False,
+            })
             return
 
         # get_checkpointer() returns a SqliteSaver context manager — enter it so
@@ -267,12 +314,7 @@ async def chat(
                         elif node_name == "composer" and "final" in patch:
                             final_envelope = patch["final"]
             except Exception as exc:
-                logger.exception("chat: graph run failed for session %s", session_id)
-                yield _format_sse("error", {
-                    "code": "graph_error",
-                    "message": str(exc),
-                    "recoverable": False,
-                })
+                yield _error_event("graph_error", exc, recoverable=False)
                 return
 
             if final_envelope is None:
@@ -370,11 +412,11 @@ async def _persist_turn(
         session_id=session_id,
         role="assistant",
         content=envelope.get("response", ""),
-        execution_steps=json.dumps(envelope.get("audit_trail", []), default=str),
-        citations=json.dumps(envelope.get("citations", []), default=str),
-        findings_json=json.dumps(envelope.get("findings", []), default=str),
-        causal_json=json.dumps(envelope.get("causal", []), default=str),
-        plan_json=json.dumps(envelope.get("plan", []), default=str),
+        execution_steps=json.dumps(envelope.get("audit_trail", []), default=_json_default),
+        citations=json.dumps(envelope.get("citations", []), default=_json_default),
+        findings_json=json.dumps(envelope.get("findings", []), default=_json_default),
+        causal_json=json.dumps(envelope.get("causal", []), default=_json_default),
+        plan_json=json.dumps(envelope.get("plan", []), default=_json_default),
     ))
     # Cost row
     usage = envelope.get("usage") or {}

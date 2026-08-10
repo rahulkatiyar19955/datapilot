@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DatapilotApi, DockerStatus } from "@shared/ipc";
+import type {
+  DatapilotApi,
+  DockerStatus,
+  KeychainSetResult,
+} from "@shared/ipc";
 
 /**
  * Narrow API surface exposed to the renderer.
@@ -41,6 +45,13 @@ const api: DatapilotApi = {
   },
   file: {
     pickBag: () => ipcRenderer.invoke("file:pickBag") as Promise<string | null>,
+    onOpenBag: (callback: (bagPath: string) => void) => {
+      const handler = (_event: any, bagPath: string) => callback(bagPath);
+      ipcRenderer.on("file:open-bag", handler);
+      return () => {
+        ipcRenderer.removeListener("file:open-bag", handler);
+      };
+    },
   },
   theme: {
     get: () =>
@@ -57,7 +68,11 @@ const api: DatapilotApi = {
     get: (key) =>
       ipcRenderer.invoke("keychain:get", key) as Promise<string | null>,
     set: (key, value) =>
-      ipcRenderer.invoke("keychain:set", key, value) as Promise<void>,
+      ipcRenderer.invoke(
+        "keychain:set",
+        key,
+        value,
+      ) as Promise<KeychainSetResult>,
   },
   shell: {
     openPath: (path) =>

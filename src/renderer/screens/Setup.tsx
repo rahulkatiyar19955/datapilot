@@ -66,7 +66,7 @@ export function Setup({ status, onRetry }: SetupProps): JSX.Element {
                 overflow: "hidden",
                 position: "relative",
                 border: "1px solid var(--color-border-1)",
-                boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
+                boxShadow: "var(--color-shadow-inset)",
               }}
             >
               <div

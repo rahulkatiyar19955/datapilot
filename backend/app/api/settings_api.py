@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
+import json
 import logging
 import os
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -210,29 +211,108 @@ class KeyUpdateRequest(BaseModel):
     key: str
 
 
+# Provider ids that carry a secret API key, mirroring `SECRET_PROVIDERS` in
+# `src/main/secrets.ts`. Only these are swept on reload — `default_provider` and
+# `default_model` also route through `_apply_key_update` but are preferences,
+# not secrets, and must never be cleared by a secret-file reload.
+_SECRET_PROVIDERS: tuple[str, ...] = ("anthropic", "openai", "google", "nvidia")
+
+
+def _apply_key_update(provider: str, key: Optional[str]) -> None:
+    """Apply a single key/setting change through one place and ALWAYS clear the
+    cached router (issue #77).
+
+    Previously only the `default_model` branch invalidated the router cache, so
+    a changed API key / provider was ignored by in-flight reads until restart.
+    Routing through this setter keeps the mutation + cache-clear consistent.
+    """
+    from app.config import settings
+    from app.llm.router import get_router
+
+    p = (provider or "").lower()
+    value = key or None
+    if p == "openai":
+        settings.openai_api_key = value
+    elif p in ("google", "gemini"):
+        settings.gemini_api_key = value
+    elif p == "anthropic":
+        settings.anthropic_api_key = value
+    elif p == "nvidia":
+        settings.nvidia_api_key = value
+    elif p == "default_provider":
+        settings.default_provider = value
+    elif p == "default_model":
+        settings.default_model = value
+
+    # Any provider/key/model change can alter routing → drop the cached router
+    # so the next turn rebuilds clients with the new settings.
+    get_router.cache_clear()
+
+
 @router.post("/keys")
 async def update_key(payload: KeyUpdateRequest):
+    _apply_key_update(payload.provider, payload.key.strip())
+    return {"status": "success", "message": f"Updated API key for {payload.provider.lower()}"}
+
+
+def load_secrets_file(path: str) -> int:
+    """Load provider API keys from a JSON secret file and apply them.
+
+    The Electron main process writes a mode-0600 `{provider: key}` JSON file and
+    bind-mounts it read-only into this container (issues #39, #32) instead of
+    injecting keys via `Env` (visible to `docker inspect`) or POSTing them from
+    the renderer over plain HTTP. Each key is applied through `_apply_key_update`
+    so the router cache is invalidated consistently.
+
+    Best-effort: a missing, unreadable, malformed, or non-object file applies
+    nothing and never raises. Returns the number of keys applied.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(data, dict):
+        return 0
+
+    applied = 0
+    seen: set[str] = set()
+    for provider, key in data.items():
+        if not isinstance(provider, str) or not isinstance(key, str):
+            continue
+        seen.add(provider.strip().lower())
+        trimmed = key.strip()
+        if not trimmed:
+            _apply_key_update(provider, None)
+            continue
+        _apply_key_update(provider, trimmed)
+        applied += 1
+
+    # A revoked key is expressed by ABSENCE: the main process omits empty keys
+    # when serializing the file, so clearing the last key yields `{}`. Without
+    # this sweep the revoked value stays live in this process until the
+    # container restarts, and the renderer no longer POSTs an explicit clear.
+    for provider in _SECRET_PROVIDERS:
+        if provider not in seen:
+            _apply_key_update(provider, None)
+    return applied
+
+
+@router.post("/reload-secrets")
+async def reload_secrets():
+    """Re-read the bind-mounted secret file (no secret crosses the wire).
+
+    The main-process orchestrator rewrites the secret file when the user changes
+    a key, then calls this endpoint so the running backend picks up the change
+    without the key ever traversing the renderer->HTTP path (issue #39).
+    """
     from app.config import settings
 
-    provider = payload.provider.lower()
-    key = payload.key.strip()
-
-    if provider == "openai":
-        settings.openai_api_key = key or None
-    elif provider == "anthropic":
-        settings.anthropic_api_key = key or None
-    elif provider == "google" or provider == "gemini":
-        settings.gemini_api_key = key or None
-    elif provider == "nvidia":
-        settings.nvidia_api_key = key or None
-    elif provider == "default_provider":
-        settings.default_provider = key or None
-    elif provider == "default_model":
-        settings.default_model = key or None
-        from app.llm.router import get_router
-        get_router.cache_clear()
-
-    return {"status": "success", "message": f"Updated API key for {provider}"}
+    path = settings.datapilot_secrets_file
+    if not path:
+        return {"status": "skipped", "applied": 0}
+    applied = await asyncio.to_thread(load_secrets_file, path)
+    return {"status": "success", "applied": applied}
 
 
 # ---------------------------------------------------------------------------

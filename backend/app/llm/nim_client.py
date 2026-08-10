@@ -13,55 +13,14 @@ from app.llm.base import (
     ToolCall,
     ToolDef,
 )
+# Shared OpenAI-compatible mapping (issue #77) — re-exported for callers/tests
+# that reference these via the client module.
+from app.llm.openai_compat import _to_openai_messages, _to_openai_tools
 from app.llm.retry import llm_timeout_seconds, retry_async
 
 logger = logging.getLogger(__name__)
 
 _NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-
-
-def _to_openai_tools(tools: list[ToolDef]) -> list[dict[str, Any]]:
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["parameters"],
-            },
-        }
-        for t in tools
-    ]
-
-
-def _to_openai_messages(system: str, messages: list[Message]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = [{"role": "system", "content": system}]
-    for m in messages:
-        role = m["role"]
-        if role == "system":
-            continue
-        if role == "assistant" and m.get("tool_calls"):
-            out.append({
-                "role": "assistant",
-                "content": m.get("content") or None,
-                "tool_calls": [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])},
-                    }
-                    for tc in m["tool_calls"]
-                ],
-            })
-        elif role == "tool":
-            out.append({
-                "role": "tool",
-                "tool_call_id": m["tool_call_id"],
-                "content": m.get("content", ""),
-            })
-        else:
-            out.append({"role": role, "content": m.get("content", "")})
-    return out
 
 
 class NimClient:

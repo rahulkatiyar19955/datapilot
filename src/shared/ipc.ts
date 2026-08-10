@@ -25,6 +25,14 @@ export interface StorageUsage {
   exists: boolean;
   totalBytes: number;
   fileCount: number;
+  /** True if a depth/entry cap stopped the walk before completion (#37). */
+  truncated?: boolean;
+}
+
+/** Result of a `keychain:set` write so the renderer can surface failures (#51). */
+export interface KeychainSetResult {
+  ok: boolean;
+  error?: string;
 }
 
 export interface DatapilotApi {
@@ -52,6 +60,12 @@ export interface DatapilotApi {
   /** Prompts user to pick a ROS bag file via native OS dialogs. */
   file: {
     pickBag(): Promise<string | null>;
+    /**
+     * Fires when a second app instance is launched with a bag file argument
+     * ("Open with DataPilot" on an already-running app, #51). Returns an
+     * unsubscribe function.
+     */
+    onOpenBag(callback: (bagPath: string) => void): () => void;
   };
   /** Theme preference operations. */
   theme: {
@@ -66,7 +80,7 @@ export interface DatapilotApi {
   /** Secure credential storage using Electron's safeStorage. */
   keychain: {
     get(key: string): Promise<string | null>;
-    set(key: string, value: string): Promise<void>;
+    set(key: string, value: string): Promise<KeychainSetResult>;
   };
   /** Launches file/folder path with host defaults. */
   shell: {

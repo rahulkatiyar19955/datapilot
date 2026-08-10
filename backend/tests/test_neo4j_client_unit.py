@@ -110,6 +110,10 @@ class TestWriteLogs:
         assert "ts: log_data.t" in query
         assert "severity: log_data.sev" in query
         assert "msg: log_data.text" in query
+        # Numeric sort key (issue #70) and session ownership (issue #68) are
+        # persisted on every Log node.
+        assert "t_sec: log_data.t_sec" in query
+        assert "session_id: $session_id" in query
         assert params == {"session_id": "sess-1", "logs_list": logs}
 
     def test_empty_logs_still_runs_unwind(self, client_and_session):
@@ -295,6 +299,10 @@ class TestInitIndexes:
         assert "CREATE VECTOR INDEX log_embedding_idx" in all_cypher
         # The requested dimension is interpolated into the vector index config.
         assert "`vector.dimensions`: 384" in all_cypher
+        # Globally-unique Log identity (issue #68): a uniqueness constraint on
+        # Log.id stops cross-session id collisions from ever recurring.
+        assert "CONSTRAINT" in all_cypher
+        assert "(n:Log) REQUIRE n.id IS UNIQUE" in all_cypher
 
     def test_drops_vector_index_when_dimension_changed(self, client_and_session):
         client, session = client_and_session
